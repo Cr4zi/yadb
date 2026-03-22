@@ -1,0 +1,28 @@
+NAME		= yadb
+
+CC			= clang
+CFLAGS		= -Wall -Werror -Wextra -pedantic -std=c23
+
+SRC_DIR		= src
+BUILD_DIR	= build
+
+SRCS 		= $(wildcard $(SRC_DIR)/*.c)
+OBJS		= $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
+
+
+all: $(BUILD_DIR)/$(NAME)
+
+debug: CFLAGS += -g -fsanitize=address
+debug: all
+
+$(BUILD_DIR)/$(NAME): $(OBJS)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	mkdir -p $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -rf build/
+
+.PHONY: all, debug, clean
