@@ -1,5 +1,4 @@
 #include "commands.h"
-#include "ds/hashtable.h"
 
 void execute(debugger_t *debugger, char *command) {
     int argc = 0;

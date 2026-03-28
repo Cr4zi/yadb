@@ -1,5 +1,4 @@
 #include "debugger.h"
-#include <string.h>
 
 int initialize_debugger_dwarf(debugger_t *debugger, char *path) {
     int res = dwarf_init_path(path, NULL, 0, DW_GROUPNUMBER_ANY, NULL, NULL, &debugger->dw_dbg, &debugger->dw_err);
