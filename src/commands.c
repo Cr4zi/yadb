@@ -47,7 +47,6 @@ static void cmd_break_helper(debugger_t *debugger, char *filename, char *line_or
         assert(0 && "break without filename currently not supported");
     }
 
-    // will use later
     dwarf_die_path_t *file_die = hashtable_find(debugger->filenames_table, filename);
     if(!file_die) {
         fprintf(stderr, "Unknown filename %s\n", filename);
