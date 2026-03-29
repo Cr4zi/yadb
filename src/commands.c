@@ -28,17 +28,23 @@ void execute(debugger_t *debugger, char *command) {
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
-static void cmd_break_line(dwarf_die_path_t *die_path, char *line_chr) {
+static void cmd_break_line(debugger_t *debugger, dwarf_die_path_t *die_path, char *line_chr) {
     long line = atol(line_chr);
     if(line == 0 && line_chr[0] != '0') {
         fprintf(stderr, "Failed parsing line\n");
         return;
     }
 
-    assert(0 && "Still not finished lmao");
+    if(line < 0) {
+        fprintf(stderr, "Invalid line number %ld\n", line);
+        return;
+    }
+
+    Dwarf_Addr addr = debugger_get_line_addr(debugger, die_path, (unsigned long long)line);
+    printf("Line addr: %llX\n", addr);
 }
 
-static void cmd_break_func(dwarf_die_path_t *die_path, char *func_name) {
+static void cmd_break_func(debugger_t *debugger, dwarf_die_path_t *die_path, char *func_name) {
     assert(0 && "`break filename func_name` isn't implemented yet");
 }
 
@@ -54,9 +60,9 @@ static void cmd_break_helper(debugger_t *debugger, char *filename, char *line_or
     }
 
     if(line_or_func[0] >= '0' && line_or_func[0] <= '9')
-        cmd_break_line(file_die, line_or_func);
+        cmd_break_line(debugger, file_die, line_or_func);
     else
-        cmd_break_func(file_die, line_or_func);
+        cmd_break_func(debugger, file_die, line_or_func);
 }
 
 void cmd_break(debugger_t *debugger, int argc, char **args) {

@@ -1,4 +1,5 @@
 #include "debugger.h"
+#include "libdwarf.h"
 
 int initialize_debugger_dwarf(debugger_t *debugger, char *path) {
     int res = dwarf_init_path(path, NULL, 0, DW_GROUPNUMBER_ANY, NULL, NULL, &debugger->dw_dbg, &debugger->dw_err);
@@ -134,4 +135,80 @@ void debugger_cu_walk(debugger_t *debugger) {
         }
     }
 
+}
+
+Dwarf_Addr debugger_get_line_addr(debugger_t *debugger, dwarf_die_path_t *die_path, unsigned long long line) {
+    Dwarf_Addr addr = 0;
+    if(!die_path) {
+        fprintf(stderr, "Die Path struct is null. This shouldn't happen\n");
+        return addr;
+    }
+
+    Dwarf_Unsigned version_out;
+    Dwarf_Small table_count;
+    Dwarf_Line_Context line_context;
+    Dwarf_Line *line_buf;
+    Dwarf_Signed line_count;
+
+    int res = dwarf_srclines_b(die_path->die, &version_out, &table_count, &line_context, &debugger->dw_err);
+    if(res == DW_DLV_ERROR) {
+        fprintf(stderr, "Failed initializing line table: %s\n", dwarf_errmsg(debugger->dw_err));
+
+        dwarf_dealloc_error(debugger->dw_dbg, debugger->dw_err);
+        return addr;
+    } else if(res == DW_DLV_NO_ENTRY) {
+        return addr;
+    }
+
+    if(table_count == 0) {
+        dwarf_srclines_dealloc_b(line_context);
+
+        return addr;
+    } else if(table_count > 1) {
+        dwarf_srclines_dealloc_b(line_context);
+
+        fprintf(stderr, "This is some experimental stuff that I don't have power to implement now");
+        return addr;
+    }
+
+
+    res = dwarf_srclines_from_linecontext(line_context, &line_buf, &line_count, &debugger->dw_err);
+    if(res == DW_DLV_ERROR) {
+        fprintf(stderr, "Failed source lines from line context: %s\n", dwarf_errmsg(debugger->dw_err));
+        return addr;
+    } else if(res == DW_DLV_NO_ENTRY) {
+        return addr;
+    }
+
+    if(line_count == 0) {
+        fprintf(stderr, "Line count is empty?\n");
+        return addr;
+    }
+
+    for(Dwarf_Signed i = 0; i < line_count; ++i) {
+        Dwarf_Unsigned line_number;
+        char *src_file;
+
+        res = dwarf_lineno(line_buf[i], &line_number, &debugger->dw_err);
+        if(res != DW_DLV_OK) {
+            break;
+        }
+
+       res = dwarf_linesrc(line_buf[i], &src_file, &debugger->dw_err);
+       if(res != DW_DLV_OK) {
+           break;
+       }
+
+       if(line_number == line && !strcmp(die_path->full_path, src_file)) {
+           res = dwarf_lineaddr(line_buf[i], &addr, &debugger->dw_err);
+           dwarf_dealloc(debugger->dw_dbg, src_file, DW_DLA_STRING);
+
+           break;
+       }
+
+       dwarf_dealloc(debugger->dw_dbg, src_file, DW_DLA_STRING);
+    }
+
+    dwarf_srclines_dealloc_b(line_context);
+    return addr;
 }

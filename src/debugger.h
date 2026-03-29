@@ -22,4 +22,6 @@ int initialize_debugger_dwarf(debugger_t *debugger, char *path);
 bool debugger_srcfiles(debugger_t *debugger, Dwarf_Die die);
 void debugger_cu_walk(debugger_t *debugger);
 
+Dwarf_Addr debugger_get_line_addr(debugger_t *debugger, dwarf_die_path_t *die_path, unsigned long long line);
+
 #endif // DEBUGGER_H_
