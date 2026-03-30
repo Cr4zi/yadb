@@ -1,7 +1,7 @@
 NAME		= yadb
 
 CC			= clang
-CFLAGS		= -Wall -Werror -Wextra -pedantic -std=c23 `pkg-config --cflags libdwarf`
+CFLAGS		= -Wall -Werror -Wextra -pedantic -std=gnu23 `pkg-config --cflags libdwarf`
 LDFLAGS		= `pkg-config --libs libdwarf`
 
 SRC_DIR		= src
