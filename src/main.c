@@ -37,6 +37,11 @@ int main(int argc, char *argv[], char *envp[]) {
         return 1;
     }
     */
+
+    if(debugger_init(&debugger, argv[1]) != DW_DLV_OK)
+        return 1;
+
+    // wait(NULL);
     char cmd_buff[MAX_COMMAND_LENGTH];
     memset(cmd_buff, 0, MAX_COMMAND_LENGTH);
     /* Up until I have the basics down, I'll use fgets otherwise I'll switch to ncurses */
@@ -50,14 +55,6 @@ int main(int argc, char *argv[], char *envp[]) {
     if(newline)
         *newline = '\0';
 
-    
-    debugger.filenames_table = hashtable_init();
-
-    if(initialize_debugger_dwarf(&debugger, argv[1]) != DW_DLV_OK)
-        return 1;
-
-    debugger_cu_walk(&debugger);
-    // wait(NULL);
     execute(&debugger, cmd_buff);
 
     hashtable_free(debugger.filenames_table);

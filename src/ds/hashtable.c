@@ -1,19 +1,6 @@
 #include "hashtable.h"
 
-/*
- * Taken from http://www.cse.yorku.ca/~oz/hash.html
- */
-static size_t djb2_hash(char *str) {
-    unsigned long hash = 5381;
-    int c;
-
-    while((c = *str++))
-        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
-
-    return hash % TABLE_SIZE;
-}
-
-hashtable_t *hashtable_init() {
+hashtable_t *hashtable_init(EqualsFunc equals, FreeKeyFunc free_key, FreeValueFunc free_value, HashFunc hash) {
     hashtable_t *table = (hashtable_t *)malloc(sizeof(hashtable_t));
     if(!table) {
         return NULL;
@@ -22,11 +9,36 @@ hashtable_t *hashtable_init() {
     for(int i = 0; i < TABLE_SIZE; ++i)
         table->buckets[i] = NULL;
 
+    if(!equals) {
+        free(table);
+        return NULL;
+    }
+
+    table->equals = equals;
+
+    if(!hash) {
+        free(table);
+        return NULL;
+    }
+
+    table->hash = hash;
+
+    // could be done with macros tbh
+    if(free_key)
+        table->free_key = free_key;
+    else
+        table->free_key = free;
+
+    if(free_value)
+        table->free_value = free_value;
+    else
+        table->free_value = free;
+    
     return table;
 }
 
-bool hashtable_insert(hashtable_t *table, char *key, Dwarf_Die die, char *full_path) {
-    size_t hash = djb2_hash(key);
+bool hashtable_insert(hashtable_t *table, void *key, void *value) {
+    size_t hash = table->hash(key) % TABLE_SIZE;
     if(hash < 0) // shouldn't be possible tbh
         return false;
 
@@ -40,44 +52,39 @@ bool hashtable_insert(hashtable_t *table, char *key, Dwarf_Die die, char *full_p
     entry->next = table->buckets[hash];
 
     entry->key = key;
-    entry->value = (dwarf_die_path_t *)malloc(sizeof(dwarf_die_path_t));
-    if(!entry->value)
-        return false;
-
-    entry->value->full_path = full_path;
-    entry->value->die = die;
+    entry->value = value; 
 
     table->buckets[hash] = entry;
 
     return true;
 }
 
-dwarf_die_path_t *hashtable_find(hashtable_t *table, char *key) {
-    size_t hash = djb2_hash(key);
+void *hashtable_find(hashtable_t *table, void *key) {
+    size_t hash = table->hash(key) % TABLE_SIZE;
     if(hash < 0) // shouldn't be possible tbh
         return NULL;
 
     for(ht_entry_t *p = table->buckets[hash]; p != NULL; p = p->next) {
-        if(!strcmp(key, p->key))
+        if(table->equals(key, p->key))
             return p->value;
     }
 
     return NULL;
 }
 
-dwarf_die_path_t *hashtable_remove(hashtable_t *table, char *key) {
-    dwarf_die_path_t *result = NULL;
+void *hashtable_remove(hashtable_t *table, void *key) {
+    void *result = NULL;
     
-    size_t hash = djb2_hash(key);
+    size_t hash = table->hash(key) % TABLE_SIZE;
 
     // hash < 0 shouldn't be possible
     if(hash < 0 || !table->buckets[hash])
         return NULL;
 
     ht_entry_t *p = table->buckets[hash];
-    if(strcmp(key, p->key)) { // if they are different
+    if(!table->equals(key, p->key)) { // if they are different
         for(; p->next != NULL; p = p->next) {
-            if(!strcmp(p->next->key, key)) {
+            if(table->equals(key, p->next->key)) {
                 ht_entry_t *tmp = p->next;
                 p->next = tmp->next;
 
@@ -102,21 +109,11 @@ void hashtable_free(hashtable_t *table) {
             ht_entry_t *prev = p;
             p = p->next;
 
-            free(prev->key);
-
-            // dwarf_finish should take care of the die
-            free(prev->value->full_path);
-            free(prev->value);
+            table->free_key(prev->key);
+            table->free_value(prev->value);
             free(prev);
         }
     }
 
     free(table);
-}
-
-void print_hashtable(hashtable_t *table) {
-    for(size_t i = 0; i < TABLE_SIZE; ++i) {
-        for(ht_entry_t *entry = table->buckets[i]; entry != NULL; entry = entry->next)
-            printf("%s: %s\n", entry->key, entry->value->full_path);
-    }
 }

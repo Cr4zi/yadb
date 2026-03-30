@@ -1,5 +1,44 @@
 #include "debugger.h"
-#include "libdwarf.h"
+
+bool hashtable_equals(void *key1, void *key2) {
+    if(!key1 || !key2)
+        return false;
+
+    return !strcmp((char *)key1, (char *)key2);
+}
+
+void free_die_path(void *ptr) {
+    dwarf_die_path_t *die_path = (dwarf_die_path_t *)ptr;
+
+    // libdwarf should take care of the die
+    free(die_path->full_path);
+    free(ptr);
+}
+
+/*
+ * Taken from http://www.cse.yorku.ca/~oz/hash.html
+ */
+size_t djb2_hash(void *ptr) {
+    size_t hash = 5381;
+    unsigned char *str = (unsigned char *)ptr;
+    int c;
+
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+    return hash;
+}
+int debugger_init(debugger_t *debugger, char *path) {
+    debugger->filenames_table = hashtable_init(hashtable_equals, NULL, free_die_path, djb2_hash);
+
+    int res = initialize_debugger_dwarf(debugger, path);
+    if(res != DW_DLV_OK)
+        return res;
+
+    debugger_cu_walk(debugger);
+
+    return res;
+}
 
 int initialize_debugger_dwarf(debugger_t *debugger, char *path) {
     int res = dwarf_init_path(path, NULL, 0, DW_GROUPNUMBER_ANY, NULL, NULL, &debugger->dw_dbg, &debugger->dw_err);
@@ -56,9 +95,17 @@ static bool insert_srcfiles(debugger_t *debugger, Dwarf_Die die) {
         for(Dwarf_Signed i = 0; i < file_count; ++i) {
             char *filename = NULL, *full_path = NULL;
             if(!access(srcfiles[i], R_OK) && extract_filename(srcfiles[i], &filename, &full_path)) {
-                if(!hashtable_insert(debugger->filenames_table, filename, die, full_path)) {
+                dwarf_die_path_t *die_path = (dwarf_die_path_t *)malloc(sizeof(dwarf_die_path_t));
+                if(!die_path)
+                    return NULL;
+
+                die_path->die = die;
+                die_path->full_path = full_path;
+                
+                if(!hashtable_insert(debugger->filenames_table, (void *)filename, (void *)die_path)) {
                     free(filename);
                     free(full_path);
+                    free(die_path);
                 }
             }
 
@@ -137,8 +184,10 @@ void debugger_cu_walk(debugger_t *debugger) {
 
 }
 
-Dwarf_Addr debugger_get_line_addr(debugger_t *debugger, dwarf_die_path_t *die_path, unsigned long long line) {
+uintptr_t debugger_get_line_addr(debugger_t *debugger, dwarf_die_path_t *die_path, unsigned long long line) {
+    // I assume addr isn't going over 2^32
     Dwarf_Addr addr = 0;
+
     if(!die_path) {
         fprintf(stderr, "Die Path struct is null. This shouldn't happen\n");
         return addr;
