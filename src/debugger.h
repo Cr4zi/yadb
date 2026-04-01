@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <errno.h>
 
 #include <dwarf.h>
 #include <libdwarf.h>
@@ -18,11 +19,14 @@ typedef struct {
 } dwarf_die_path_t;
 
 typedef struct {
-    pid_t debugee;
     Dwarf_Debug dw_dbg;
     Dwarf_Error dw_err;
+    hashtable_t *filenames_table; /* Key: char *, Value: dwarf_die_path_t * */
 
-    hashtable_t *filenames_table;
+    // These are going be only software breakpoints
+    hashtable_t *breakpoints_table; /* Key: uintptr_t, Value: char(original byte) */
+
+    pid_t debugee;
 } debugger_t;
 
 int debugger_init(debugger_t *debugger, char *path);
