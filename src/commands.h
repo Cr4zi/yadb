@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <sys/types.h>
+#include <sys/ptrace.h>
+#include <sys/wait.h>
+#include <sys/personality.h>
 
 #include <dwarf.h>
 #include <libdwarf.h>
@@ -21,6 +25,7 @@
     CMD("continue", cmd_continue)                               \
     CMD("print", cmd_print)                                     \
     CMD("backtrace", cmd_backtrace)                             \
+    CMD("exit", cmd_exit)                                       \
     CMD("help", cmd_help)
 
 #define CMD(_str, _func) void _func(debugger_t *, int, char **);

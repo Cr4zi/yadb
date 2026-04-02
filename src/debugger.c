@@ -1,6 +1,9 @@
 #include "debugger.h"
+#include "ds/hashtable.h"
+#include <stdint.h>
+#include <sys/ptrace.h>
 
-bool hashtable_equals(void *key1, void *key2) {
+bool str_equals(void *key1, void *key2) {
     if(!key1 || !key2)
         return false;
 
@@ -28,8 +31,32 @@ size_t djb2_hash(void *ptr) {
 
     return hash;
 }
+
+bool breakpoints_equals(void *key1, void *key2) {
+    return key1 == key2;
+}
+
+
+/*
+ * Taken from https://stackoverflow.com/questions/664014
+ */
+size_t ptr_hash(void *ptr) {
+    uintptr_t x = (uintptr_t)ptr;
+    x = ((x >> 16) ^ x) * 0x45d9f3bu;
+    x = ((x >> 16) ^ x) * 0x45d9f3bu;
+    x = (x >> 16) ^ x;
+
+    return (size_t)x;
+}
+
 int debugger_init(debugger_t *debugger, char *path) {
-    debugger->filenames_table = hashtable_init(hashtable_equals, NULL, free_die_path, djb2_hash);
+    debugger->debugee = 0;
+    debugger->is_running = false;
+    debugger->is_exit = false;
+    debugger->full_path = path;
+
+    debugger->filenames_table = hashtable_init(str_equals, NULL, free_die_path, djb2_hash);
+    debugger->breakpoints_table = hashtable_init(breakpoints_equals, NULL, NULL, ptr_hash); // C lambda when?
 
     int res = initialize_debugger_dwarf(debugger, path);
     if(res != DW_DLV_OK)
@@ -184,6 +211,25 @@ void debugger_cu_walk(debugger_t *debugger) {
 
 }
 
+uintptr_t debugger_get_base_addr(debugger_t *debugger) {
+    #define PATH_LENGTH 64
+    char path[PATH_LENGTH];
+    snprintf(path, PATH_LENGTH, "/proc/%d/maps", debugger->debugee);
+    #undef PATH_LENGTH
+
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        perror("fopen maps");
+        return 0;
+    }
+
+    uintptr_t base_addr = 0;
+    fscanf(f, "%lx-", &base_addr);
+    fclose(f);
+
+    return base_addr;
+}
+
 uintptr_t debugger_get_line_addr(debugger_t *debugger, dwarf_die_path_t *die_path, unsigned long long line) {
     // I assume addr isn't going over 2^32
     Dwarf_Addr addr = 0;
@@ -260,4 +306,40 @@ uintptr_t debugger_get_line_addr(debugger_t *debugger, dwarf_die_path_t *die_pat
 
     dwarf_srclines_dealloc_b(line_context);
     return addr;
+}
+
+void set_software_breakpoint(debugger_t *debugger, uintptr_t offset) {
+    if(hashtable_find(debugger->breakpoints_table, (void *)offset))
+        return;
+
+    uintptr_t base_addr = debugger_get_base_addr(debugger);
+
+    errno = 0;
+    long word = ptrace(PTRACE_PEEKDATA, debugger->debugee, (void *)(offset + base_addr), NULL);
+
+    if(word == -1 && errno) {
+        perror("ptrace(PEEKDATA)");
+        return;
+    }
+
+    unsigned char *original_byte = (unsigned char *)malloc(sizeof(unsigned char));
+    if(!original_byte)
+        return;
+    
+    *original_byte = word & 0xFF;
+
+    word = (word & ~0xFF) | 0xCC;
+
+    if(ptrace(PTRACE_POKEDATA, debugger->debugee, (void *)(offset + base_addr), word) == -1) {
+        perror("ptrace(POKEDATA)");
+        free(original_byte);
+        return;
+    }
+
+    uintptr_t *addr_ptr = (uintptr_t *)malloc(sizeof(uintptr_t));
+    if(!addr_ptr)
+        return;
+
+    hashtable_insert(debugger->breakpoints_table, addr_ptr, original_byte);
+    printf("Successfully set breakpoint at: %p\n", (void *)offset);
 }

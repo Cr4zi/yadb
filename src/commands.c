@@ -1,8 +1,11 @@
 #include "commands.h"
+#include <sys/personality.h>
+#include <sys/ptrace.h>
 
 void execute(debugger_t *debugger, char *command) {
     int argc = 0;
     char *args[MAX_ARGC] = {NULL};
+    args[argc++] = debugger->full_path;
 
     char *cmd = strtok(command, " ");
     if(!cmd) {
@@ -40,8 +43,9 @@ static void cmd_break_line(debugger_t *debugger, dwarf_die_path_t *die_path, cha
         return;
     }
 
-    Dwarf_Addr addr = debugger_get_line_addr(debugger, die_path, (unsigned long long)line);
-    printf("Line addr: %llX\n", addr);
+    uintptr_t addr = debugger_get_line_addr(debugger, die_path, (unsigned long long)line);
+    printf("Addr: %p\n", (void *)addr);
+    set_software_breakpoint(debugger, addr);
 }
 
 static void cmd_break_func(debugger_t *debugger, dwarf_die_path_t *die_path, char *func_name) {
@@ -66,19 +70,60 @@ static void cmd_break_helper(debugger_t *debugger, char *filename, char *line_or
 }
 
 void cmd_break(debugger_t *debugger, int argc, char **args) {
-    if(argc != 1 && argc != 2) {
+    if(argc != 2 && argc != 3) {
         fprintf(stderr, "Invalid amounts of arguments for break\nWrite `help break` for more info\n");
         return;
     }
 
-    if(argc == 1)
-        cmd_break_helper(debugger, NULL, args[0]);
+    if(argc == 2)
+        cmd_break_helper(debugger, NULL, args[1]);
     else
-        cmd_break_helper(debugger, args[0], args[1]);
+        cmd_break_helper(debugger, args[1], args[2]);
 }
 
 void cmd_run(debugger_t *debugger, int argc, char **args) {
-    assert(0 && "cmd_run not implmented yet!");
+    if(debugger->is_running) {
+        fprintf(stderr, "Killing previous running process.\n");
+        kill(debugger->debugee, SIGKILL);
+    }
+
+    debugger->debugee = fork();
+
+    if(debugger->debugee == 0) {
+        // Disabling Address Space Layout Randomization
+
+        int old_personality = personality(0xffffffff); // get current
+        if (personality(old_personality | ADDR_NO_RANDOMIZE) == -1) {
+            perror("personality");
+            return;
+        }
+
+        long traceme = ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+        if(traceme == -1) {
+            perror("ptrace(TRACEME)");
+            return;
+        }
+
+        raise(SIGSTOP);
+        execve(debugger->full_path, args, NULL);
+
+        perror("execve");
+        return;
+    }
+
+    int status = 0;
+    waitpid(debugger->debugee, &status, 0);
+    if(!WIFSTOPPED(status)) {
+        fprintf(stderr, "Program ended unexpectedly.\n");
+        return;
+    }
+
+    ptrace(PTRACE_SETOPTIONS, debugger->debugee, 0, PTRACE_O_TRACEEXEC);
+    ptrace(PTRACE_CONT, debugger->debugee, 0, 0);
+
+    waitpid(debugger->debugee, &status, 0);
+    debugger->is_running = true;
+    printf("Running: %d\n", debugger->debugee);
 }
 
 void cmd_step(debugger_t *debugger, int argc, char **args) {
@@ -86,7 +131,16 @@ void cmd_step(debugger_t *debugger, int argc, char **args) {
 }
 
 void cmd_continue(debugger_t *debugger, int argc, char **args) {
-    assert(0 && "cmd_continue not implmented yet!");
+    if(!debugger->is_running) {
+        fprintf(stderr, "Process is not running, use run first.\n");
+        return;
+    }
+    
+    if(ptrace(PTRACE_CONT, debugger->debugee, SIGCONT, NULL) == -1)
+        perror("Couldn't continue debugee");
+
+    int status = 0;
+    waitpid(debugger->debugee, &status, 0);
 }
 
 void cmd_print(debugger_t *debugger, int argc, char **args) {
@@ -95,6 +149,11 @@ void cmd_print(debugger_t *debugger, int argc, char **args) {
 
 void cmd_backtrace(debugger_t *debugger, int argc, char **args) {
     assert(0 && "cmd_backtrace not implmented yet!");
+}
+
+void cmd_exit(debugger_t *debugger, int argc, char **args) {
+    kill(debugger->debugee, SIGKILL);
+    debugger->is_exit = true;
 }
 
 void cmd_help(debugger_t *debugger, int argc, char **args) {
