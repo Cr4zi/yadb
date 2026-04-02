@@ -1,6 +1,4 @@
 #include "commands.h"
-#include <sys/personality.h>
-#include <sys/ptrace.h>
 
 void execute(debugger_t *debugger, char *command) {
     int argc = 0;
@@ -44,7 +42,6 @@ static void cmd_break_line(debugger_t *debugger, dwarf_die_path_t *die_path, cha
     }
 
     uintptr_t addr = debugger_get_line_addr(debugger, die_path, (unsigned long long)line);
-    printf("Addr: %p\n", (void *)addr);
     set_software_breakpoint(debugger, addr);
 }
 

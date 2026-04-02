@@ -1,7 +1,4 @@
 #include "debugger.h"
-#include "ds/hashtable.h"
-#include <stdint.h>
-#include <sys/ptrace.h>
 
 bool str_equals(void *key1, void *key2) {
     if(!key1 || !key2)
