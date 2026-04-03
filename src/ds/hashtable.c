@@ -24,16 +24,9 @@ hashtable_t *hashtable_init(EqualsFunc equals, FreeKeyFunc free_key, FreeValueFu
     table->hash = hash;
 
     // could be done with macros tbh
-    if(free_key)
-        table->free_key = free_key;
-    else
-        table->free_key = free;
+    table->free_key = free_key;
+    table->free_value = free_value;
 
-    if(free_value)
-        table->free_value = free_value;
-    else
-        table->free_value = free;
-    
     return table;
 }
 
@@ -109,8 +102,12 @@ void hashtable_free(hashtable_t *table) {
             ht_entry_t *prev = p;
             p = p->next;
 
-            table->free_key(prev->key);
-            table->free_value(prev->value);
+            if(table->free_key)
+                table->free_key(prev->key);
+
+            if(table->free_value)
+                table->free_value(prev->value);
+
             free(prev);
         }
     }
