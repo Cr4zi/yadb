@@ -1,4 +1,5 @@
 #include "commands.h"
+#include <stdlib.h>
 
 void execute(debugger_t *debugger, char *command) {
     int argc = 0;
@@ -128,16 +129,53 @@ void cmd_step(debugger_t *debugger, int argc, char **args) {
 }
 
 void cmd_continue(debugger_t *debugger, int argc, char **args) {
+    int status = 0;
+
     if(!debugger->is_running) {
         fprintf(stderr, "Process is not running, use run first.\n");
         return;
     }
     
-    if(ptrace(PTRACE_CONT, debugger->debugee, SIGCONT, NULL) == -1)
-        perror("Couldn't continue debugee");
+    struct user_regs_struct regs;
+    if(ptrace(PTRACE_GETREGS, debugger->debugee, NULL, &regs) == -1) {
+        perror("PTRACE(GETREGS)");
+        return;
+    }
 
-    int status = 0;
+    uintptr_t base_addr = debugger_get_base_addr(debugger);
+    uintptr_t instr = regs.rip - base_addr - 1;
+
+    // if there is a breakpoint at the address of rip
+    if(hashtable_find(debugger->breakpoints_table,
+                       (void *)(instr))) {
+        // since rip already read the modified byte, we want to return it before reading that byte.
+        regs.rip = regs.rip - 1;
+
+        if(ptrace(PTRACE_SETREGS, debugger->debugee, NULL, &regs) == -1) {
+            perror("PTRACE(SETREGS)");
+            return;
+        }
+
+        disable_breakpoints(debugger, instr);
+
+        if(ptrace(PTRACE_SINGLESTEP, debugger->debugee, 0, 0) == -1) {
+            perror("PTRACE(SINGLESTEP)");
+            return;
+        }
+
+        waitpid(debugger->debugee, &status, 0);
+        enable_breakpoints(debugger, instr);
+    }
+
+    if(ptrace(PTRACE_CONT, debugger->debugee, 0, NULL) == -1)
+        perror("PTRACE(CONT)");
+
     waitpid(debugger->debugee, &status, 0);
+
+    if(!WIFSTOPPED(status)) {
+        printf("Program finished\n");
+        debugger->is_running = false;
+    }
 }
 
 void cmd_print(debugger_t *debugger, int argc, char **args) {
@@ -149,7 +187,9 @@ void cmd_backtrace(debugger_t *debugger, int argc, char **args) {
 }
 
 void cmd_exit(debugger_t *debugger, int argc, char **args) {
-    kill(debugger->debugee, SIGKILL);
+    if(debugger->is_running)
+        kill(debugger->debugee, SIGKILL);
+
     debugger->is_exit = true;
 }
 

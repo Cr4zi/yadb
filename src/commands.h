@@ -9,6 +9,7 @@
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <sys/personality.h>
+#include <sys/user.h>
 
 #include <dwarf.h>
 #include <libdwarf.h>
