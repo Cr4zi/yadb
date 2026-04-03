@@ -1,4 +1,5 @@
 #include "debugger.h"
+#include "ds/hashtable.h"
 
 bool str_equals(void *key1, void *key2) {
     if(!key1 || !key2)
@@ -30,9 +31,8 @@ size_t djb2_hash(void *ptr) {
 }
 
 bool breakpoints_equals(void *key1, void *key2) {
-    return key1 == key2;
+    return (uintptr_t)key1 == (uintptr_t)key2;
 }
-
 
 /*
  * Taken from https://stackoverflow.com/questions/664014
@@ -52,8 +52,8 @@ int debugger_init(debugger_t *debugger, char *path) {
     debugger->is_exit = false;
     debugger->full_path = path;
 
-    debugger->filenames_table = hashtable_init(str_equals, NULL, free_die_path, djb2_hash);
-    debugger->breakpoints_table = hashtable_init(breakpoints_equals, NULL, NULL, ptr_hash); // C lambda when?
+    debugger->filenames_table = hashtable_init(str_equals, free, free_die_path, djb2_hash);
+    debugger->breakpoints_table = hashtable_init(breakpoints_equals, NULL, free, ptr_hash); // C lambda when?
 
     int res = initialize_debugger_dwarf(debugger, path);
     if(res != DW_DLV_OK)
@@ -305,10 +305,8 @@ uintptr_t debugger_get_line_addr(debugger_t *debugger, dwarf_die_path_t *die_pat
     return addr;
 }
 
-void set_software_breakpoint(debugger_t *debugger, uintptr_t offset) {
-    if(hashtable_find(debugger->breakpoints_table, (void *)offset))
-        return;
-
+unsigned char set_byte_at_offset(debugger_t *debugger, uintptr_t offset,
+                                unsigned char byte) {
     uintptr_t base_addr = debugger_get_base_addr(debugger);
 
     errno = 0;
@@ -316,27 +314,53 @@ void set_software_breakpoint(debugger_t *debugger, uintptr_t offset) {
 
     if(word == -1 && errno) {
         perror("ptrace(PEEKDATA)");
-        return;
+        return 0;
     }
 
-    unsigned char *original_byte = (unsigned char *)malloc(sizeof(unsigned char));
-    if(!original_byte)
-        return;
-    
-    *original_byte = word & 0xFF;
+    unsigned char original_byte = word & 0xFF;
 
-    word = (word & ~0xFF) | 0xCC;
+    word = (word & ~0xFF) | byte;
 
     if(ptrace(PTRACE_POKEDATA, debugger->debugee, (void *)(offset + base_addr), word) == -1) {
         perror("ptrace(POKEDATA)");
-        free(original_byte);
+        return 0;
+    }
+
+    return original_byte;
+
+}
+
+unsigned char enable_breakpoints(debugger_t *debugger, uintptr_t offset) {
+    breakpoint_t *breakpoint = (breakpoint_t *)hashtable_find(debugger->breakpoints_table, (void *)offset);
+    if(breakpoint)
+        breakpoint->is_enabled = true;
+
+    /* 0xCC - int3 instruction */
+    return set_byte_at_offset(debugger, offset, 0xCC);
+}
+
+void disable_breakpoints(debugger_t *debugger, uintptr_t offset) {
+    breakpoint_t *breakpoint = (breakpoint_t *)hashtable_find(debugger->breakpoints_table, (void *)offset);
+    if(!breakpoint) {
+        fprintf(stderr, "No breakpoint exists at: %p\n", (void *)offset);
         return;
     }
 
-    uintptr_t *addr_ptr = (uintptr_t *)malloc(sizeof(uintptr_t));
-    if(!addr_ptr)
+    if(set_byte_at_offset(debugger, offset, breakpoint->original_byte))
+        breakpoint->is_enabled = false;
+}
+
+void set_software_breakpoint(debugger_t *debugger, uintptr_t offset) {
+    if(hashtable_find(debugger->breakpoints_table, (void *)offset))
         return;
 
-    hashtable_insert(debugger->breakpoints_table, addr_ptr, original_byte);
-    printf("Successfully set breakpoint at: %p\n", (void *)offset);
+    breakpoint_t *breakpoint = (breakpoint_t *)malloc(sizeof(breakpoint_t));
+    if(!breakpoint)
+        return;
+
+    breakpoint->original_byte = enable_breakpoints(debugger, offset);
+    breakpoint->is_enabled = true;
+
+    hashtable_insert(debugger->breakpoints_table, (void *)offset, breakpoint);
+    printf("Successfully set breakpoint at: %p\n", (void *)(offset));
 }
