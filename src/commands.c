@@ -122,7 +122,6 @@ void cmd_run(debugger_t *debugger, int argc, char **args) {
 
     waitpid(debugger->debugee, &status, 0);
     debugger->is_running = true;
-    printf("Running: %d\n", debugger->debugee);
 
     reenable_breakpoints(debugger);
 
