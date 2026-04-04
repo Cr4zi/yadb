@@ -173,7 +173,6 @@ void cmd_continue(debugger_t *debugger, int argc, char **args) {
     waitpid(debugger->debugee, &status, 0);
 
     if(!WIFSTOPPED(status)) {
-        printf("Program finished\n");
         debugger->is_running = false;
     }
 }
