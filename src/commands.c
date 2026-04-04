@@ -186,8 +186,12 @@ void cmd_print(debugger_t *debugger, int argc, char **args) {
     assert(0 && "cmd_print not implmented yet!");
 }
 
-void cmd_backtrace(debugger_t *debugger, int argc, char **args) {
-    assert(0 && "cmd_backtrace not implmented yet!");
+void cmd_list(debugger_t *debugger, int argc, char **args) {
+    assert(0 && "cmd_list not implmented yet!");
+}
+
+void cmd_disable(debugger_t *debugger, int argc, char **args) {
+    assert(0 && "cmd_disable not implmented yet!");
 }
 
 void cmd_exit(debugger_t *debugger, int argc, char **args) {

@@ -25,6 +25,8 @@
     CMD("step", cmd_step)                                       \
     CMD("continue", cmd_continue)                               \
     CMD("print", cmd_print)                                     \
+    CMD("list", cmd_list)                                       \
+    CMD("disable", cmd_disable)                                 \
     CMD("backtrace", cmd_backtrace)                             \
     CMD("exit", cmd_exit)                                       \
     CMD("help", cmd_help)
