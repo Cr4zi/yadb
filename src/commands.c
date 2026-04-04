@@ -1,4 +1,5 @@
 #include "commands.h"
+#include "debugger.h"
 #include <stdlib.h>
 
 void execute(debugger_t *debugger, char *command) {
@@ -122,6 +123,11 @@ void cmd_run(debugger_t *debugger, int argc, char **args) {
     waitpid(debugger->debugee, &status, 0);
     debugger->is_running = true;
     printf("Running: %d\n", debugger->debugee);
+
+    reenable_breakpoints(debugger);
+
+    ptrace(PTRACE_CONT, debugger->debugee, 0, 0);
+    waitpid(debugger->debugee, &status, 0);
 }
 
 void cmd_step(debugger_t *debugger, int argc, char **args) {
@@ -156,7 +162,7 @@ void cmd_continue(debugger_t *debugger, int argc, char **args) {
             return;
         }
 
-        disable_breakpoints(debugger, instr);
+        disable_breakpoint(debugger, instr);
 
         if(ptrace(PTRACE_SINGLESTEP, debugger->debugee, 0, 0) == -1) {
             perror("PTRACE(SINGLESTEP)");
@@ -164,7 +170,7 @@ void cmd_continue(debugger_t *debugger, int argc, char **args) {
         }
 
         waitpid(debugger->debugee, &status, 0);
-        enable_breakpoints(debugger, instr);
+        enable_breakpoint(debugger, instr);
     }
 
     if(ptrace(PTRACE_CONT, debugger->debugee, 0, NULL) == -1)

@@ -330,7 +330,7 @@ unsigned char set_byte_at_offset(debugger_t *debugger, uintptr_t offset,
 
 }
 
-unsigned char enable_breakpoints(debugger_t *debugger, uintptr_t offset) {
+unsigned char enable_breakpoint(debugger_t *debugger, uintptr_t offset) {
     breakpoint_t *breakpoint = (breakpoint_t *)hashtable_find(debugger->breakpoints_table, (void *)offset);
     if(breakpoint)
         breakpoint->is_enabled = true;
@@ -339,7 +339,7 @@ unsigned char enable_breakpoints(debugger_t *debugger, uintptr_t offset) {
     return set_byte_at_offset(debugger, offset, 0xCC);
 }
 
-void disable_breakpoints(debugger_t *debugger, uintptr_t offset) {
+void disable_breakpoint(debugger_t *debugger, uintptr_t offset) {
     breakpoint_t *breakpoint = (breakpoint_t *)hashtable_find(debugger->breakpoints_table, (void *)offset);
     if(!breakpoint) {
         fprintf(stderr, "No breakpoint exists at: %p\n", (void *)offset);
@@ -358,9 +358,27 @@ void set_software_breakpoint(debugger_t *debugger, uintptr_t offset) {
     if(!breakpoint)
         return;
 
-    breakpoint->original_byte = enable_breakpoints(debugger, offset);
+    if(debugger->is_running)
+        breakpoint->original_byte = enable_breakpoint(debugger, offset);
+
     breakpoint->is_enabled = true;
 
     hashtable_insert(debugger->breakpoints_table, (void *)offset, breakpoint);
     printf("Successfully set breakpoint at: %p\n", (void *)(offset));
+}
+
+void reenable_breakpoints(debugger_t *debugger) {
+    hashtable_t *table = debugger->breakpoints_table;
+    for(int i = 0; i < TABLE_SIZE; ++i) {
+        ht_entry_t *entry = table->buckets[i];
+        for(; entry != NULL; entry = entry->next) {
+            breakpoint_t *breakpoint = entry->value;
+            if(breakpoint->is_enabled) {
+                unsigned char original_byte = enable_breakpoint(debugger, (uintptr_t)entry->key);
+
+                if(original_byte != 0xCC) // if that breakpoint was set before running
+                    breakpoint->original_byte = original_byte;
+            }
+        }
+    }
 }
