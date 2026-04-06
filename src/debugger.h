@@ -52,7 +52,7 @@ unsigned char set_byte_at_offset(debugger_t *debugger, uintptr_t offset, unsigne
 // returns the original byte
 unsigned char enable_breakpoint(debugger_t *debugger, uintptr_t offset);
 
-void disable_breakpoint(debugger_t *debugger, uintptr_t offset);
+bool disable_breakpoint(debugger_t *debugger, uintptr_t offset);
 void set_software_breakpoint(debugger_t *debugger, uintptr_t offset);
 void reenable_breakpoints(debugger_t *debugger);
 

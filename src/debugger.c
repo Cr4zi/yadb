@@ -381,7 +381,6 @@ unsigned char set_byte_at_offset(debugger_t *debugger, uintptr_t offset,
     }
 
     return original_byte;
-
 }
 
 unsigned char enable_breakpoint(debugger_t *debugger, uintptr_t offset) {
@@ -390,18 +389,25 @@ unsigned char enable_breakpoint(debugger_t *debugger, uintptr_t offset) {
         breakpoint->is_enabled = true;
 
     /* 0xCC - int3 instruction */
-    return set_byte_at_offset(debugger, offset, 0xCC);
+    if(debugger->is_running)
+        return set_byte_at_offset(debugger, offset, 0xCC);
+
+    return 0; // just a garbage value
 }
 
-void disable_breakpoint(debugger_t *debugger, uintptr_t offset) {
+bool disable_breakpoint(debugger_t *debugger, uintptr_t offset) {
     breakpoint_t *breakpoint = (breakpoint_t *)hashtable_find(debugger->breakpoints_table, (void *)offset);
     if(!breakpoint) {
         fprintf(stderr, "No breakpoint exists at: %p\n", (void *)offset);
-        return;
+        return false;
     }
 
-    if(set_byte_at_offset(debugger, offset, breakpoint->original_byte))
-        breakpoint->is_enabled = false;
+    if(debugger->is_running)
+        set_byte_at_offset(debugger, offset, breakpoint->original_byte);
+
+    breakpoint->is_enabled = false;
+
+    return true;
 }
 
 void set_software_breakpoint(debugger_t *debugger, uintptr_t offset) {

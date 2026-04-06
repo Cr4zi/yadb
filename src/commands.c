@@ -1,6 +1,17 @@
 #include "commands.h"
 #include "debugger.h"
+#include "ds/hashtable.h"
 #include <stdlib.h>
+
+static uintptr_t arg_to_uintpr(char *arg) {
+    uintptr_t addr;
+    if(sscanf(arg, "%lx", &addr) == 0) {
+        fprintf(stderr, "Expected a valid address\n");
+        return 0;
+    }
+
+    return addr;
+}
 
 void execute(debugger_t *debugger, char *command) {
     int argc = 0;
@@ -58,7 +69,7 @@ static void cmd_break_func(debugger_t *debugger, char *func_name) {
 static void cmd_break_helper(debugger_t *debugger, char *filename, char *line_or_func) {
     dwarf_die_path_t *file_die = NULL;
 
-    if (filename) {
+    if(filename) {
         file_die = (dwarf_die_path_t *)hashtable_find(debugger->filenames_table, (void *)filename);
         if(!file_die) {
             fprintf(stderr, "Unknown filename %s\n", filename);
@@ -118,6 +129,7 @@ void cmd_run(debugger_t *debugger, int argc, char **args) {
     waitpid(debugger->debugee, &status, 0);
     if(!WIFSTOPPED(status)) {
         fprintf(stderr, "Program ended unexpectedly.\n");
+        debugger->is_running = false;
         return;
     }
 
@@ -129,8 +141,7 @@ void cmd_run(debugger_t *debugger, int argc, char **args) {
 
     reenable_breakpoints(debugger);
 
-    ptrace(PTRACE_CONT, debugger->debugee, 0, 0);
-    waitpid(debugger->debugee, &status, 0);
+    cmd_continue(debugger, argc, args);
 }
 
 void cmd_step(debugger_t *debugger, int argc, char **args) {
@@ -195,7 +206,29 @@ void cmd_list(debugger_t *debugger, int argc, char **args) {
 }
 
 void cmd_disable(debugger_t *debugger, int argc, char **args) {
-    assert(0 && "cmd_disable not implmented yet!");
+    if(argc != 2) {
+        fprintf(stderr, "Expected breakpoint address\n");
+        return;
+    }
+
+    uintptr_t addr = arg_to_uintpr(args[1]);
+    if(addr == 0)
+        return;
+
+    if(disable_breakpoint(debugger, addr))
+        printf("Disabled breakpoint at: %p\n", (void *)addr);
+}
+
+void cmd_enable(debugger_t *debugger, int argc, char **args) {
+    if(argc != 2) {
+        fprintf(stderr, "Expected breakpoint address\n");
+        return;
+    }
+
+    uintptr_t addr = arg_to_uintpr(args[1]);
+
+    enable_breakpoint(debugger, addr);
+    printf("Enabled breakpoint at: %p\n", (void *)addr);
 }
 
 void cmd_backtrace(debugger_t *debugger, int argc, char **args) {
