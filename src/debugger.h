@@ -41,7 +41,6 @@ typedef struct {
 
 int debugger_init(debugger_t *debugger, char *path);
 int initialize_debugger_dwarf(debugger_t *debugger, char *path);
-bool debugger_srcfiles(debugger_t *debugger, Dwarf_Die die);
 void debugger_cu_walk(debugger_t *debugger);
 
 uintptr_t debugger_get_base_addr(debugger_t *debugger);

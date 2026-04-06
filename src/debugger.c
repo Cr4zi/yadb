@@ -146,46 +146,6 @@ static bool insert_srcfiles(debugger_t *debugger, Dwarf_Die die) {
     return true;
 }
 
-bool debugger_srcfiles(debugger_t *debugger, Dwarf_Die die) {
-    int res = DW_DLV_OK;
-    Dwarf_Die cur_die = die;
-    Dwarf_Die child = 0;
-
-    bool used = insert_srcfiles(debugger, cur_die);
-
-    while(1) {
-        Dwarf_Die sib_die = 0;
-
-        res = dwarf_child(cur_die, &child, &debugger->dw_err);
-        if(res == DW_DLV_ERROR) {
-            fprintf(stderr, "Couldn't open a child: %s\n", dwarf_errmsg(debugger->dw_err));
-            return false;
-        }
-
-        if(res == DW_DLV_OK) {
-            if(!debugger_srcfiles(debugger, child)) {
-                dwarf_dealloc(debugger->dw_dbg, child, DW_DLA_DIE);
-                child = 0;
-            }
-        }
-
-        res = dwarf_siblingof_c(cur_die, &sib_die, &debugger->dw_err);
-        if(res != DW_DLV_OK) {
-            return false;
-        }
-
-        if(cur_die != die) {
-            dwarf_dealloc(debugger->dw_dbg, cur_die, DW_DLA_DIE);
-            cur_die = 0;
-        }
-
-        cur_die = sib_die;
-        insert_srcfiles(debugger, cur_die);
-    }
-
-    return used;
-}
-
 void debugger_cu_walk(debugger_t *debugger) {
     Dwarf_Bool is_info = true;
     Dwarf_Die die = 0;
@@ -203,9 +163,12 @@ void debugger_cu_walk(debugger_t *debugger) {
                                         &type_signature, &typeoffset, &next_cu_header_offset,
                                         &header_cu_type, &debugger->dw_err)) == DW_DLV_OK) {
 
-        if(header_cu_type == DW_UT_compile) {
-            debugger_srcfiles(debugger, die);
-        }
+        if(header_cu_type == DW_UT_compile)
+            insert_srcfiles(debugger, die);
+        else
+            dwarf_dealloc(debugger->dw_dbg, die, DW_DLA_DIE);
+
+        die = 0;
     }
 
 }
