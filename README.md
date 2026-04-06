@@ -1,7 +1,12 @@
-<p align="center">
-  <img src="assets/yadb.png" alt="yadb logo" width="200">
-</p>
+## yet another debugger
 
-# yadb
+> <img src="assets/yadb.png" align="right" width="180"/>
 
-Yet Another Debugger - A lightweight, portable debugger.
+a lightweight, portable debugger.
+>
+> - simple and intuitive interface
+> - written in c for maximum portability
+> - supports x86 and x86_64 architectures
+> - supports linux echosystem
+
+
