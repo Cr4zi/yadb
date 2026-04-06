@@ -47,25 +47,29 @@ static void cmd_break_line(debugger_t *debugger, dwarf_die_path_t *die_path, cha
     set_software_breakpoint(debugger, addr);
 }
 
-static void cmd_break_func(debugger_t *debugger, dwarf_die_path_t *die_path, char *func_name) {
-    assert(0 && "`break filename func_name` isn't implemented yet");
+static void cmd_break_func(debugger_t *debugger, char *func_name) {
+    uintptr_t addr = get_func_addr(debugger, func_name);
+    if (addr == 0)
+        printf("Couldn't find function %s\n", func_name);
+
+    set_software_breakpoint(debugger, addr);
 }
 
 static void cmd_break_helper(debugger_t *debugger, char *filename, char *line_or_func) {
-    if(!filename) {
-        assert(0 && "break without filename currently not supported");
+    dwarf_die_path_t *file_die = NULL;
+
+    if (filename) {
+        file_die = (dwarf_die_path_t *)hashtable_find(debugger->filenames_table, (void *)filename);
+        if(!file_die) {
+            fprintf(stderr, "Unknown filename %s\n", filename);
+            return;
+        }
     }
 
-    dwarf_die_path_t *file_die = (dwarf_die_path_t *)hashtable_find(debugger->filenames_table, (void *)filename);
-    if(!file_die) {
-        fprintf(stderr, "Unknown filename %s\n", filename);
-        return;
-    }
-
-    if(line_or_func[0] >= '0' && line_or_func[0] <= '9')
+    if(line_or_func[0] >= '0' && line_or_func[0] <= '9' && file_die)
         cmd_break_line(debugger, file_die, line_or_func);
     else
-        cmd_break_func(debugger, file_die, line_or_func);
+        cmd_break_func(debugger, line_or_func);
 }
 
 void cmd_break(debugger_t *debugger, int argc, char **args) {
@@ -192,6 +196,10 @@ void cmd_list(debugger_t *debugger, int argc, char **args) {
 
 void cmd_disable(debugger_t *debugger, int argc, char **args) {
     assert(0 && "cmd_disable not implmented yet!");
+}
+
+void cmd_backtrace(debugger_t *debugger, int argc, char **args) {
+    assert(0 && "cmd_backtrace not implmented yet!");
 }
 
 void cmd_exit(debugger_t *debugger, int argc, char **args) {

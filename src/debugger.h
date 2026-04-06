@@ -46,6 +46,7 @@ void debugger_cu_walk(debugger_t *debugger);
 
 uintptr_t debugger_get_base_addr(debugger_t *debugger);
 uintptr_t debugger_get_line_addr(debugger_t *debugger, dwarf_die_path_t *die_path, unsigned long long line);
+uintptr_t get_func_addr(debugger_t *debugger, char *func_name);
 
 unsigned char set_byte_at_offset(debugger_t *debugger, uintptr_t offset, unsigned char byte);
 

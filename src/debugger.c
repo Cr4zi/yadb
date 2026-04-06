@@ -1,5 +1,7 @@
 #include "debugger.h"
 #include "ds/hashtable.h"
+#include "dwarf.h"
+#include "libdwarf.h"
 
 bool str_equals(void *key1, void *key2) {
     if(!key1 || !key2)
@@ -305,6 +307,95 @@ uintptr_t debugger_get_line_addr(debugger_t *debugger, dwarf_die_path_t *die_pat
     return addr;
 }
 
+static uintptr_t get_func_addr_in_die_helper(debugger_t *debugger, Dwarf_Die die,
+                                  char *func_name) {
+    char *die_name;
+    int res = dwarf_diename(die, &die_name, &debugger->dw_err);
+    if(res != DW_DLV_OK)
+        return 0;
+
+    Dwarf_Half tag;
+    res = dwarf_tag(die, &tag, &debugger->dw_err);
+    if(res != DW_DLV_OK)
+        return 0;
+
+    if(tag != DW_TAG_subprogram)
+        return 0;
+
+    if(strcmp(die_name, func_name))
+        return 0;
+
+    // if we came to here then this is the correct die
+    Dwarf_Attribute *attr_list;
+    Dwarf_Signed attr_count;
+    res = dwarf_attrlist(die, &attr_list, &attr_count, &debugger->dw_err);
+    if(res != DW_DLV_OK)
+        return 0;
+
+    Dwarf_Addr addr = 0;
+    for(Dwarf_Signed i = 0; i < attr_count; ++i) {
+        Dwarf_Half attr_num;
+        res = dwarf_whatattr(attr_list[i], &attr_num, &debugger->dw_err);
+        if(res != DW_DLV_OK)
+            continue;
+
+        if (attr_num == DW_AT_low_pc) {
+            res = dwarf_formaddr(attr_list[i], &addr, &debugger->dw_err);
+        }
+
+        dwarf_dealloc_attribute(attr_list[i]);
+    }
+
+    dwarf_dealloc(debugger->dw_dbg, attr_list, DW_DLA_LIST);
+    return addr;
+}
+
+static uintptr_t get_func_in_die(debugger_t *debugger, Dwarf_Die die,
+                                 char *func_name) {
+    Dwarf_Die iter_die;
+
+    int res = dwarf_child(die, &iter_die, &debugger->dw_err);
+    if(res != DW_DLV_OK)
+        return 0;
+
+    while(res != DW_DLV_NO_ENTRY) {
+        uintptr_t addr =
+            get_func_addr_in_die_helper(debugger, iter_die, func_name);
+
+        if (addr != 0) {
+                dwarf_dealloc(debugger->dw_dbg, iter_die, DW_DLA_DIE);
+                return addr;
+        }
+
+        Dwarf_Die prev = iter_die;
+        res = dwarf_siblingof_c(prev, &iter_die, &debugger->dw_err);
+
+        dwarf_dealloc(debugger->dw_dbg, prev, DW_DLA_DIE);
+    }
+
+    if(res == DW_DLV_OK)
+        dwarf_dealloc(debugger->dw_dbg, iter_die, DW_DLA_DIE);
+
+    return 0;
+}
+
+uintptr_t get_func_addr(debugger_t *debugger, char *func_name) {
+    for(int i = 0; i < TABLE_SIZE; ++i) {
+        ht_entry_t *entry = debugger->filenames_table->buckets[i];
+        while(entry) {
+            dwarf_die_path_t *die_path = (dwarf_die_path_t *)entry->value;
+            uintptr_t addr =
+                get_func_in_die(debugger, die_path->die, func_name);
+            if(addr != 0)
+                return addr;
+
+            entry = entry->next;
+        }
+    }
+
+    return 0;
+}
+
 unsigned char set_byte_at_offset(debugger_t *debugger, uintptr_t offset,
                                 unsigned char byte) {
     uintptr_t base_addr = debugger_get_base_addr(debugger);
@@ -371,6 +462,7 @@ void reenable_breakpoints(debugger_t *debugger) {
     hashtable_t *table = debugger->breakpoints_table;
     for(int i = 0; i < TABLE_SIZE; ++i) {
         ht_entry_t *entry = table->buckets[i];
+
         for(; entry != NULL; entry = entry->next) {
             breakpoint_t *breakpoint = entry->value;
             if(breakpoint->is_enabled) {
