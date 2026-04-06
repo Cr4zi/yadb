@@ -202,6 +202,10 @@ void cmd_backtrace(debugger_t *debugger, int argc, char **args) {
     assert(0 && "cmd_backtrace not implmented yet!");
 }
 
+void cmd_watchpoint(debugger_t *debugger, int argc, char **args) {
+    assert(0 && "cmd_watchpoint not implmented yet!");
+}
+
 void cmd_exit(debugger_t *debugger, int argc, char **args) {
     if(debugger->is_running)
         kill(debugger->debugee, SIGKILL);

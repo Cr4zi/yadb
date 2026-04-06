@@ -27,6 +27,7 @@
     CMD("print", cmd_print)                                     \
     CMD("list", cmd_list)                                       \
     CMD("disable", cmd_disable)                                 \
+    CMD("watchpoint", cmd_watchpoint)                           \
     CMD("backtrace", cmd_backtrace)                             \
     CMD("exit", cmd_exit)                                       \
     CMD("help", cmd_help)
