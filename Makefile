@@ -1,14 +1,14 @@
-NAME		= yadb
+NAME = yadb
 
-CC			= clang
-CFLAGS		= -Wall -Werror -Wextra -pedantic -std=gnu23 `pkg-config --cflags libdwarf`
-LDFLAGS		= `pkg-config --libs libdwarf`
+CC = gcc 
+CFLAGS = -Wall -Werror -Wextra -pedantic -std=gnu23 `pkg-config --cflags libdwarf`
+LDFLAGS = `pkg-config --libs libdwarf`
 
-SRC_DIR		= src
+SRC_DIR	= src
 BUILD_DIR	= build
 
-SRCS 		= $(wildcard $(SRC_DIR)/*.c) $(wildcard $(SRC_DIR)/ds/*.c)
-OBJS		= $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
+SRCS = $(wildcard $(SRC_DIR)/*.c)
+OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 
 
 all: $(BUILD_DIR)/$(NAME)
