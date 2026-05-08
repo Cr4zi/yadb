@@ -7,7 +7,7 @@ LDFLAGS = `pkg-config --libs libdwarf`
 SRC_DIR	= src
 BUILD_DIR	= build
 
-SRCS = $(wildcard $(SRC_DIR)/*.c)
+SRCS = $(wildcard $(SRC_DIR)/*.c) $(wildcard $(SRC_DIR)/ds/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 
 
