@@ -62,7 +62,7 @@ bool debugger_set_breakpoint(struct debugger *debugger, uintptr_t offset) {
   if (find_breakpoint(debugger->breakpoints, offset) != -1)
     return false;
 
-  int8_t original_byte = 0;
+  uint8_t original_byte = 0;
 
   bool enabled = false;
   if (IS_RUNNING(debugger->state)) {
@@ -369,7 +369,7 @@ static uint8_t set_byte_at(struct debugger *debugger, uintptr_t offset,
     return 0;
   }
 
-  int8_t original_byte = word & 0xFF;
+  uint8_t original_byte = word & 0xFF;
 
   word = (word & ~0xFF) | byte;
 

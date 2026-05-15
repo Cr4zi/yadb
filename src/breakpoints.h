@@ -41,7 +41,7 @@ BREAKPOINTS_PARAMETERS
 
 
 ssize_t add_breakpoint(struct breakpoints *lst, uintptr_t addr,
-                       int8_t original_byte, bool enabled);
+                       uint8_t original_byte, bool enabled);
 ssize_t find_breakpoint(struct breakpoints *lst, uintptr_t addr);
 void breakpoints_deinit(struct breakpoints *lst);
 

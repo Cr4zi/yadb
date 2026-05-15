@@ -1,7 +1,7 @@
 #include "breakpoints.h"
 
 ssize_t add_breakpoint(struct breakpoints *lst, uintptr_t addr,
-                       int8_t original_byte, bool enabled) {
+                       uint8_t original_byte, bool enabled) {
   da_append(lst->addrs, addr);
   da_append(lst->original_byte, original_byte);
   da_append(lst->enabled, enabled);
