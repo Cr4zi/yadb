@@ -1,4 +1,5 @@
 #include "commands.h"
+#include "breakpoints.h"
 #include "debugger.h"
 
 static void cmd_break_line(struct debugger *debugger, char *filename, char *line);
@@ -125,11 +126,31 @@ void cmd_list(struct debugger *debugger, const size_t argc, char **args) {
 }
 
 void cmd_disable(struct debugger *debugger, const size_t argc, char **args) {
-  assert(0 && "cmd_disable not implemented");
+  if (argc != 2) {
+    fprintf(stderr, "Invalid amount of arguments.\nSee `help disable` for more information.\n");
+    return;
+  }
+
+  size_t indx = atol(args[1]);
+
+  if (debugger_disable_breakpoint(debugger, indx)) {
+    // This access is valid since we check it inside debugger_disable_breakpoint
+    printf("Successfully disabled breakpoint at %p\n", (void *)debugger->breakpoints->addrs.items[indx]);
+  }
 }
 
 void cmd_enable(struct debugger *debugger, const size_t argc, char **args) {
-  assert(0 && "cmd_enable not implemented");
+  if (argc != 2) {
+    fprintf(stderr, "Invalid amount of arguments.\nSee `help enable` for more information.\n");
+    return;
+  }
+
+  size_t indx = atol(args[1]);
+
+  if (debugger_enable_breakpoint(debugger, indx)) {
+    // This access is valid since we check it inside debugger_enable_breakpoint
+    printf("Successfully enabled breakpoint at %p\n", (void *)debugger->breakpoints->addrs.items[indx]);
+  }
 }
 
 void cmd_watchpoint(struct debugger *debugger, const size_t argc,
