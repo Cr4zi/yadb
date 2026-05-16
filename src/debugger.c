@@ -36,6 +36,7 @@ int32_t debugger_init(struct debugger *restrict debugger, const char *path) {
 
   debugger->breakpoints =
       (struct breakpoints *)malloc(sizeof(struct breakpoints));
+
   if (!debugger->breakpoints) {
     perror("malloc(breakpoints)");
     return DW_DLV_ERROR;
@@ -69,9 +70,8 @@ bool debugger_set_breakpoint(struct debugger *debugger, uintptr_t offset) {
   uint8_t original_byte = 0;
 
   bool enabled = true;
-  if (IS_RUNNING(debugger->state)) {
+  if (IS_RUNNING(debugger->state))
     original_byte = set_byte_at(debugger, offset, INT3_OPCODE);
-  }
 
   printf("Set breakpoint at: %p\n", (void *)offset);
 
