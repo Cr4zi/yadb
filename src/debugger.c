@@ -14,12 +14,13 @@ static struct die_path_pair *die_path_init(char *full_path, Dwarf_Die die);
 static void free_die_path_pair(void *pair);
 static uintptr_t get_base_addr(pid_t pid);
 static int32_t add_srcfiles(struct debugger *debugger, Dwarf_Die die,
-                        Dwarf_Half cu_header_type);
+                            Dwarf_Half cu_header_type);
 static void debugger_cu_walk(struct debugger *debugger);
 static int64_t get_word_at(struct debugger *debugger, uintptr_t offset);
 static uint8_t set_byte_at(struct debugger *debugger, uintptr_t offset,
-                        uint8_t byte);
-static uintptr_t get_func_addr_in_die(struct debugger *debugger, Dwarf_Die die, char *func_name);
+                           uint8_t byte);
+static uintptr_t get_func_addr_in_die(struct debugger *debugger, Dwarf_Die die,
+                                      char *func_name);
 
 int32_t debugger_init(struct debugger *restrict debugger, const char *path) {
   int32_t dw_res = dwarf_init_path(path, NULL, 0, DW_GROUPNUMBER_ANY, NULL,
@@ -111,7 +112,7 @@ bool debugger_disable_breakpoint(struct debugger *debugger, size_t indx) {
 
   uintptr_t offset = breakpoints->addrs.items[indx];
 
-  if(IS_RUNNING(debugger->state))
+  if (IS_RUNNING(debugger->state))
     set_byte_at(debugger, offset, breakpoints->original_byte.items[indx]);
 
   breakpoints->enabled.items[indx] = false;
@@ -196,7 +197,8 @@ uintptr_t debugger_get_line_addr(struct debugger *debugger, char *filename,
   Dwarf_Small table_count = 0;
   Dwarf_Line_Context line_context = 0;
 
-  dw_res = dwarf_srclines_b(pair->die, &line_version, &table_count, &line_context, &debugger->dw_err);
+  dw_res = dwarf_srclines_b(pair->die, &line_version, &table_count,
+                            &line_context, &debugger->dw_err);
   if (dw_res != DW_DLV_OK)
     return addr;
 
@@ -210,7 +212,8 @@ uintptr_t debugger_get_line_addr(struct debugger *debugger, char *filename,
   Dwarf_Line *lines = NULL;
   Dwarf_Signed line_count = 0;
 
-  dw_res = dwarf_srclines_from_linecontext(line_context, &lines, &line_count, &debugger->dw_err);
+  dw_res = dwarf_srclines_from_linecontext(line_context, &lines, &line_count,
+                                           &debugger->dw_err);
   if (dw_res != DW_DLV_OK)
     return addr;
 
@@ -253,7 +256,6 @@ uintptr_t debugger_get_func_addr(struct debugger *debugger, char *func_name) {
       if (addr != 0)
         return addr;
     }
-
   }
 
   return addr;
@@ -330,14 +332,15 @@ static uintptr_t get_base_addr(pid_t pid) {
 }
 
 static int32_t add_srcfiles(struct debugger *debugger, Dwarf_Die die,
-                        Dwarf_Half cu_header_type) {
+                            Dwarf_Half cu_header_type) {
   if (cu_header_type != DW_UT_compile)
     return DW_DLV_OK;
 
   char **dw_srcfiles = NULL;
 
   Dwarf_Signed filecount = 0;
-  int32_t dw_res = dwarf_srcfiles(die, &dw_srcfiles, &filecount, &debugger->dw_err);
+  int32_t dw_res =
+      dwarf_srcfiles(die, &dw_srcfiles, &filecount, &debugger->dw_err);
   if (dw_res != DW_DLV_OK)
     return dw_res;
 
@@ -389,7 +392,7 @@ static int64_t get_word_at(struct debugger *debugger, uintptr_t offset) {
 }
 
 static uint8_t set_byte_at(struct debugger *debugger, uintptr_t offset,
-                        uint8_t byte) {
+                           uint8_t byte) {
   int64_t word = get_word_at(debugger, offset);
   if (word == -1) {
     fprintf(stderr, "Couldn't get word at %p\n", (void *)offset);
@@ -410,7 +413,8 @@ static uint8_t set_byte_at(struct debugger *debugger, uintptr_t offset,
   return original_byte;
 }
 
-static Dwarf_Addr get_func_addr_in_die_helper(struct debugger *debugger, Dwarf_Die die, char *func_name) {
+static Dwarf_Addr get_func_addr_in_die_helper(struct debugger *debugger,
+                                              Dwarf_Die die, char *func_name) {
   Dwarf_Addr addr = 0;
 
   Dwarf_Half tag = 0;
