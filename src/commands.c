@@ -1,257 +1,207 @@
 #include "commands.h"
+#include "breakpoints.h"
 #include "debugger.h"
-#include "ds/hashtable.h"
-#include <stdlib.h>
 
-static uintptr_t arg_to_uintpr(char *arg) {
-  uintptr_t addr;
-  if (sscanf(arg, "%lx", &addr) == 0) {
-    fprintf(stderr, "Expected a valid address\n");
-    return 0;
-  }
+static void cmd_break_line(struct debugger *debugger, char *filename, char *line);
+static void cmd_break_func(struct debugger *debugger, char *func);
 
-  return addr;
-}
+void execute(struct debugger *debugger, char *command) {
+  char *args[ARG_MAX] = {NULL};
 
-void execute(debugger_t *debugger, char *command) {
-  int argc = 0;
-  char *args[MAX_ARGC] = {NULL};
-  args[argc++] = debugger->full_path;
+  size_t argc = 0;
+  args[argc++] = debugger->path;
 
   char *cmd = strtok(command, " ");
   if (!cmd) {
-    fprintf(stderr, "Unkown Command.\nWrite help for help.\n");
+    fprintf(stderr, "No command\n");
     return;
   }
 
-  char *arg = NULL;
-  while ((arg = strtok(NULL, " ")) != NULL && argc < MAX_ARGC)
-    args[argc++] = arg;
+  char *token = NULL;
+  while ((token = strtok(NULL, " ")) && argc < ARG_MAX)
+    args[argc++] = token;
 
-#define CMD(_str, _func)                                                       \
-  if (!strcmp(cmd, _str)) {                                                    \
+#define CMD(_cmd, _func)                                                       \
+  if (!strcmp(_cmd, cmd)) {                                                    \
     _func(debugger, argc, args);                                               \
     return;                                                                    \
   }
+
   COMMANDS
 #undef CMD
 
-  fprintf(stderr, "Unkown Command.\nWrite help for help.\n");
-  return;
+  fprintf(stderr, "Unknown command.\n");
 }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-parameter"
-static void cmd_break_line(debugger_t *debugger, dwarf_die_path_t *die_path,
-                           char *line_chr) {
-  long line = atol(line_chr);
-  if (line == 0 && line_chr[0] != '0') {
-    fprintf(stderr, "Failed parsing line\n");
-    return;
-  }
-
-  if (line < 0) {
-    fprintf(stderr, "Invalid line number %ld\n", line);
-    return;
-  }
-
-  uintptr_t addr =
-      debugger_get_line_addr(debugger, die_path, (unsigned long long)line);
-  set_software_breakpoint(debugger, addr);
-}
-
-static void cmd_break_func(debugger_t *debugger, char *func_name) {
-  uintptr_t addr = get_func_addr(debugger, func_name);
-  if (addr == 0)
-    printf("Couldn't find function %s\n", func_name);
-
-  set_software_breakpoint(debugger, addr);
-}
-
-static void cmd_break_helper(debugger_t *debugger, char *filename,
-                             char *line_or_func) {
-  dwarf_die_path_t *file_die = NULL;
-
-  if (filename) {
-    file_die = (dwarf_die_path_t *)hashtable_find(debugger->filenames_table,
-                                                  (void *)filename);
-    if (!file_die) {
-      fprintf(stderr, "Unknown filename %s\n", filename);
-      return;
-    }
-  }
-
-  if (line_or_func[0] >= '0' && line_or_func[0] <= '9' && file_die)
-    cmd_break_line(debugger, file_die, line_or_func);
-  else
-    cmd_break_func(debugger, line_or_func);
-}
-
-void cmd_break(debugger_t *debugger, int argc, char **args) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+void cmd_break(struct debugger *debugger, const size_t argc, char **args) {
   if (argc != 2 && argc != 3) {
-    fprintf(stderr, "Invalid amounts of arguments for break\nWrite `help "
-                    "break` for more info\n");
+    fprintf(stderr, "Invalid amount of arguments.\nSee `help break` for more information.\n");
     return;
   }
 
-  if (argc == 2)
-    cmd_break_helper(debugger, NULL, args[1]);
-  else
-    cmd_break_helper(debugger, args[1], args[2]);
+  if (argc == 3) {
+    cmd_break_line(debugger, args[1], args[2]);
+    return;
+  }
+
+  cmd_break_func(debugger, args[1]);
 }
 
-void cmd_run(debugger_t *debugger, int argc, char **args) {
-  if (debugger->is_running) {
-    fprintf(stderr, "Killing previous running process.\n");
+void cmd_run(struct debugger *debugger, const size_t argc, char **args) {
+  if (IS_RUNNING(debugger->state)) {
+    fprintf(stderr, "Killing previously running process\n");
     kill(debugger->debugee, SIGKILL);
   }
 
   debugger->debugee = fork();
 
   if (debugger->debugee == 0) {
-    // Disabling Address Space Layout Randomization
 
-    int old_personality = personality(0xffffffff); // get current
-    if (personality(old_personality | ADDR_NO_RANDOMIZE) == -1) {
+    // Disable ASLR
+    int32_t old_personality = personality(0xffffffff);
+    if (personality(old_personality & ADDR_NO_RANDOMIZE) == -1) {
       perror("personality");
-      return;
+      exit(1);
     }
 
-    long traceme = ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+    int64_t traceme = ptrace(PTRACE_TRACEME, 0, NULL, NULL);
     if (traceme == -1) {
       perror("ptrace(TRACEME)");
-      return;
+      exit(1);
     }
 
     raise(SIGSTOP);
-    execve(debugger->full_path, args, NULL);
-
+    execve(debugger->path, args, NULL);
+    
     perror("execve");
-    return;
+    exit(1);
   }
 
-  int status = 0;
+  int32_t status = 0;
   waitpid(debugger->debugee, &status, 0);
+
   if (!WIFSTOPPED(status)) {
-    fprintf(stderr, "Program ended unexpectedly.\n");
-    debugger->is_running = false;
+    fprintf(stderr, "Program ended unexpectedly\n");
     return;
   }
 
+  // When any execve is launched from the debugee we will stop.
   ptrace(PTRACE_SETOPTIONS, debugger->debugee, 0, PTRACE_O_TRACEEXEC);
-  ptrace(PTRACE_CONT, debugger->debugee, 0, 0);
-
-  waitpid(debugger->debugee, &status, 0);
-  debugger->is_running = true;
-
-  reenable_breakpoints(debugger);
-
-  cmd_continue(debugger, argc, args);
-}
-
-void cmd_step(debugger_t *debugger, int argc, char **args) {
-  assert(0 && "cmd_step not implmented yet!");
-}
-
-void cmd_continue(debugger_t *debugger, int argc, char **args) {
-  int status = 0;
-
-  if (!debugger->is_running) {
-    fprintf(stderr, "Process is not running, use run first.\n");
-    return;
-  }
-
-  struct user_regs_struct regs;
-  if (ptrace(PTRACE_GETREGS, debugger->debugee, NULL, &regs) == -1) {
-    perror("PTRACE(GETREGS)");
-    return;
-  }
-
-  uintptr_t base_addr = debugger_get_base_addr(debugger);
-  uintptr_t instr = regs.rip - base_addr - 1;
-
-  // if there is a breakpoint at the address of rip
-  if (hashtable_find(debugger->breakpoints_table, (void *)(instr))) {
-    // since rip already read the modified byte, we want to return it before
-    // reading that byte.
-    regs.rip = regs.rip - 1;
-
-    if (ptrace(PTRACE_SETREGS, debugger->debugee, NULL, &regs) == -1) {
-      perror("PTRACE(SETREGS)");
-      return;
-    }
-
-    disable_breakpoint(debugger, instr);
-
-    if (ptrace(PTRACE_SINGLESTEP, debugger->debugee, 0, 0) == -1) {
-      perror("PTRACE(SINGLESTEP)");
-      return;
-    }
-
-    waitpid(debugger->debugee, &status, 0);
-    enable_breakpoint(debugger, instr);
-  }
-
-  if (ptrace(PTRACE_CONT, debugger->debugee, 0, NULL) == -1)
-    perror("PTRACE(CONT)");
+  ptrace(PTRACE_CONT, debugger->debugee, NULL, NULL);
 
   waitpid(debugger->debugee, &status, 0);
 
   if (!WIFSTOPPED(status)) {
-    debugger->is_running = false;
+    fprintf(stderr, "Program ended unexpectedly\n");
+    return;
   }
+
+  SET_RUNNING(debugger->state);
+
+  debugger_enable_all(debugger);
+
+  debugger_continue(debugger);
 }
 
-void cmd_print(debugger_t *debugger, int argc, char **args) {
-  assert(0 && "cmd_print not implmented yet!");
+void cmd_step(struct debugger *debugger, const size_t argc, char **args) {
+  assert(0 && "cmd_step not implemented");
 }
 
-void cmd_list(debugger_t *debugger, int argc, char **args) {
-  assert(0 && "cmd_list not implmented yet!");
+void cmd_continue(struct debugger *debugger, const size_t argc,
+                  char **args) {
+  if (argc != 1) {
+    fprintf(stderr, "Invalid usage of continue.\nSee `help break` for more information.\n");
+    return;
+  }
+
+  debugger_continue(debugger);
 }
 
-void cmd_disable(debugger_t *debugger, int argc, char **args) {
+void cmd_print(struct debugger *debugger, const size_t argc, char **args) {
+  assert(0 && "cmd_print not implemented");
+}
+
+void cmd_list(struct debugger *debugger, const size_t argc, char **args) {
+  assert(0 && "cmd_list not implemented");
+}
+
+void cmd_disable(struct debugger *debugger, const size_t argc, char **args) {
   if (argc != 2) {
-    fprintf(stderr, "Expected breakpoint address\n");
+    fprintf(stderr, "Invalid amount of arguments.\nSee `help disable` for more information.\n");
     return;
   }
 
-  uintptr_t addr = arg_to_uintpr(args[1]);
-  if (addr == 0)
-    return;
+  size_t indx = atol(args[1]);
 
-  if (disable_breakpoint(debugger, addr))
-    printf("Disabled breakpoint at: %p\n", (void *)addr);
+  if (debugger_disable_breakpoint(debugger, indx)) {
+    // This access is valid since we check it inside debugger_disable_breakpoint
+    printf("Successfully disabled breakpoint at %p\n", (void *)debugger->breakpoints->addrs.items[indx]);
+  }
 }
 
-void cmd_enable(debugger_t *debugger, int argc, char **args) {
+void cmd_enable(struct debugger *debugger, const size_t argc, char **args) {
   if (argc != 2) {
-    fprintf(stderr, "Expected breakpoint address\n");
+    fprintf(stderr, "Invalid amount of arguments.\nSee `help enable` for more information.\n");
     return;
   }
 
-  uintptr_t addr = arg_to_uintpr(args[1]);
+  size_t indx = atol(args[1]);
 
-  enable_breakpoint(debugger, addr);
-  printf("Enabled breakpoint at: %p\n", (void *)addr);
+  if (debugger_enable_breakpoint(debugger, indx)) {
+    // This access is valid since we check it inside debugger_enable_breakpoint
+    printf("Successfully enabled breakpoint at %p\n", (void *)debugger->breakpoints->addrs.items[indx]);
+  }
 }
 
-void cmd_backtrace(debugger_t *debugger, int argc, char **args) {
-  assert(0 && "cmd_backtrace not implmented yet!");
+void cmd_watchpoint(struct debugger *debugger, const size_t argc,
+                    char **args) {
+  assert(0 && "cmd_watchpoint not implemented");
 }
 
-void cmd_watchpoint(debugger_t *debugger, int argc, char **args) {
-  assert(0 && "cmd_watchpoint not implmented yet!");
+void cmd_backtrace(struct debugger *debugger, const size_t argc,
+                   char **args) {
+  assert(0 && "cmd_backtrace not implemented");
 }
 
-void cmd_exit(debugger_t *debugger, int argc, char **args) {
-  if (debugger->is_running)
-    kill(debugger->debugee, SIGKILL);
-
-  debugger->is_exit = true;
+void cmd_exit(struct debugger *debugger, const size_t argc, char **args) {
+  SET_EXIT(debugger->state);
 }
 
-void cmd_help(debugger_t *debugger, int argc, char **args) {
-  assert(0 && "cmd_help not implmented yet!");
+void cmd_help(struct debugger *debugger, const size_t argc, char **args) {
+  assert(0 && "cmd_help not implemented");
 }
-#pragma clang diagnostic pop
+
+static void cmd_break_line(struct debugger *debugger, char *filename,
+                           char *line) {
+  uint64_t line_num = atol(line);
+  if (line_num == 0 && line[0] != '0') {
+    fprintf(stderr, "Couldn't parse line number.\n");
+    return;
+  }
+
+  uintptr_t addr = debugger_get_line_addr(debugger, filename, line_num);
+  if (!addr) {
+    fprintf(stderr, "Couldn't find either file/line\n");
+    return;
+  }
+
+  if (debugger_set_breakpoint(debugger, addr))
+    printf("Successfully set breakpoint in %s at %lu.\n", filename, line_num);
+  else
+    fprintf(stderr, "Couldn't set breakpoint.\n");
+}
+
+static void cmd_break_func(struct debugger *debugger, char *func) {
+  uintptr_t addr = debugger_get_func_addr(debugger, func);
+  if (!addr) {
+    fprintf(stderr, "Couldn't find function name: %s\n", func);
+    return;
+  }
+
+  if (debugger_set_breakpoint(debugger, addr))
+    printf("Successfully set breakpoint at function: %s\n", func);
+  else
+    fprintf(stderr, "Couldn't set breakpoint.\n");
+}

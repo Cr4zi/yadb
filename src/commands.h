@@ -1,23 +1,11 @@
-#ifndef COMMANDS_H_
-#define COMMANDS_H_
+#ifndef _COMMANDS_H_
+#define _COMMANDS_H_
 
 #include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <sys/personality.h>
-#include <sys/ptrace.h>
-#include <sys/types.h>
-#include <sys/user.h>
-#include <sys/wait.h>
-
-#include <dwarf.h>
-#include <libdwarf.h>
+#include <linux/limits.h>
 
 #include "debugger.h"
-#include "ds/hashtable.h"
-
-#define MAX_ARGC 10
 
 #define COMMANDS                                                               \
   CMD("break", cmd_break)                                                      \
@@ -33,10 +21,10 @@
   CMD("exit", cmd_exit)                                                        \
   CMD("help", cmd_help)
 
-#define CMD(_str, _func) void _func(debugger_t *, int, char **);
+#define CMD(_cmd, _func) void _func(struct debugger *, const size_t, char **);
 COMMANDS
 #undef CMD
 
-void execute(debugger_t *debugger, char *command);
+void execute(struct debugger *debugger, char *command);
 
-#endif // COMMANDS_H_
+#endif

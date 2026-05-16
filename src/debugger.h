@@ -1,62 +1,63 @@
-#ifndef DEBUGGER_H_
-#define DEBUGGER_H_
+#ifndef _DEBUGGER_H_
+#define _DEBUGGER_H_
 
-#include <errno.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/ptrace.h>
 #include <sys/types.h>
+#include <sys/personality.h>
+#include <sys/ptrace.h>
+#include <sys/wait.h>
+#include <sys/user.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <signal.h>
+#include <unistd.h>
+#include <assert.h>
+#include <string.h>
 
 #include <dwarf.h>
 #include <libdwarf.h>
 
-#include "ds/hashtable.h"
+#include "ds/ht.h"
+#include "breakpoints.h"
 
-typedef struct {
+static const uint8_t INT3_OPCODE = 0xCC;
+
+struct die_path_pair {
   char *full_path;
   Dwarf_Die die;
-} dwarf_die_path_t;
+};
 
-typedef struct {
-  bool is_enabled;
-  unsigned char original_byte;
-} breakpoint_t;
+#define IS_RUNNING(x) ((x) & 1)
+#define SET_RUNNING(x) x = (x) ^ 1
 
-typedef struct {
-  char *full_path;
+#define IS_EXIT(x) (((x) >> 1) & 1)
+#define SET_EXIT(x) x = (x) ^ (1 << 1)
+
+struct debugger {
+  struct breakpoints *breakpoints;
 
   Dwarf_Debug dw_dbg;
   Dwarf_Error dw_err;
-  hashtable_t *filenames_table; /* Key: char *, Value: dwarf_die_path_t * */
 
-  // These are going be only software breakpoints
-  hashtable_t *breakpoints_table; /* Key: uintptr_t, Value: breakpoint_t */
+  struct ht *srcfiles; /* Key: filename, Value: die_path_pair */
+
+  char *path;
 
   pid_t debugee;
-  bool is_running;
-  bool is_exit;
-} debugger_t;
+  uint8_t state;
+};
 
-int debugger_init(debugger_t *debugger, char *path);
-int initialize_debugger_dwarf(debugger_t *debugger, char *path);
-void debugger_cu_walk(debugger_t *debugger);
+int32_t debugger_init(struct debugger *restrict debugger, const char *path);
+void debugger_deinit(struct debugger *restrict debugger);
 
-uintptr_t debugger_get_base_addr(debugger_t *debugger);
-uintptr_t debugger_get_line_addr(debugger_t *debugger,
-                                 dwarf_die_path_t *die_path,
-                                 unsigned long long line);
-uintptr_t get_func_addr(debugger_t *debugger, char *func_name);
+bool debugger_set_breakpoint(struct debugger *debugger, uintptr_t offset);
+bool debugger_enable_breakpoint(struct debugger *debugger, size_t indx);
+bool debugger_disable_breakpoint(struct debugger *debugger, size_t indx);
+void debugger_enable_all(struct debugger *debugger);
 
-unsigned char set_byte_at_offset(debugger_t *debugger, uintptr_t offset,
-                                 unsigned char byte);
+void debugger_continue(struct debugger *debugger);
 
-// returns the original byte
-unsigned char enable_breakpoint(debugger_t *debugger, uintptr_t offset);
+uintptr_t debugger_get_line_addr(struct debugger *debugger, char *filename, uint64_t line);
+uintptr_t debugger_get_func_addr(struct debugger *debugger, char *func_name);
 
-bool disable_breakpoint(debugger_t *debugger, uintptr_t offset);
-void set_software_breakpoint(debugger_t *debugger, uintptr_t offset);
-void reenable_breakpoints(debugger_t *debugger);
-
-#endif // DEBUGGER_H_
+#endif

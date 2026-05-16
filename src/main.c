@@ -1,49 +1,51 @@
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 
 #include <libdwarf.h>
 
-#include "commands.h"
 #include "debugger.h"
-#include "ds/hashtable.h"
+#include "commands.h"
 
-#define MAX_COMMAND_LENGTH 128
+#define MAX_LINE 4096
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-parameter"
-int main(int argc, char *argv[]) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+int main(int argc, char *argv[], char *envp[]) {
   if (argc != 2) {
-    fprintf(stderr, "USAGE: yadb [TARGET]\n");
+    fprintf(stderr, "Usage: %s [TARGET]\n", argv[0]);
     return 1;
   }
 
-  debugger_t debugger;
-  if (debugger_init(&debugger, argv[1]) != DW_DLV_OK)
-    return 1;
+  struct debugger dbg = {
+    .path = argv[1],
+    .state = 0
+  };
 
-  // wait(NULL);
-  char cmd_buff[MAX_COMMAND_LENGTH];
-  while (!debugger.is_exit) {
-    memset(cmd_buff, 0, MAX_COMMAND_LENGTH);
-    /* Up until I have the basics down, I'll use fgets otherwise I'll switch to
-     * ncurses */
+  int dw_res = debugger_init(&dbg, argv[1]);
+  if (dw_res == DW_DLV_ERROR) {
+    fprintf(stderr, "Dwarf error: %s\n", dwarf_errmsg(dbg.dw_err));
+    return 1;
+  } else if (dw_res == DW_DLV_NO_ENTRY) {
+    fprintf(stderr, "No entry what the sigma\n");
+    return 2;
+  }
+
+  char buff[MAX_LINE];
+  while (!IS_EXIT(dbg.state)) {
+    memset(buff, 0, MAX_LINE);
     printf("> ");
-    if (!fgets(cmd_buff, MAX_COMMAND_LENGTH, stdin)) {
+    if (!fgets(buff, MAX_LINE, stdin)) {
       perror("fgets");
-      exit(1);
+      return 1;
     }
 
-    char *newline = strchr(cmd_buff, '\n');
+    char *newline = strchr(buff, '\n');
     if (newline)
       *newline = '\0';
 
-    execute(&debugger, cmd_buff);
+    execute(&dbg, buff);
   }
 
-  hashtable_free(debugger.breakpoints_table);
-  hashtable_free(debugger.filenames_table);
-  dwarf_finish(debugger.dw_dbg);
+  debugger_deinit(&dbg);
   return 0;
 }
-#pragma clang diagnostic pop
