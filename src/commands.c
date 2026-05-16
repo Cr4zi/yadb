@@ -3,7 +3,7 @@
 #include "debugger.h"
 
 static void cmd_break_line(struct debugger *debugger, char *filename, char *line);
-/* static void cmd_break_func(struct debugger *debugger, char *func); */
+static void cmd_break_func(struct debugger *debugger, char *func);
 
 void execute(struct debugger *debugger, char *command) {
   char *args[ARG_MAX] = {NULL};
@@ -45,6 +45,8 @@ void cmd_break(struct debugger *debugger, const size_t argc, char **args) {
     cmd_break_line(debugger, args[1], args[2]);
     return;
   }
+
+  cmd_break_func(debugger, args[1]);
 }
 
 void cmd_run(struct debugger *debugger, const size_t argc, char **args) {
@@ -191,7 +193,15 @@ static void cmd_break_line(struct debugger *debugger, char *filename,
     fprintf(stderr, "Couldn't set breakpoint.\n");
 }
 
-/* static void cmd_break_func(struct debugger *debugger, char *func) { */
+static void cmd_break_func(struct debugger *debugger, char *func) {
+  uintptr_t addr = debugger_get_func_addr(debugger, func);
+  if (!addr) {
+    fprintf(stderr, "Couldn't find function name: %s\n", func);
+    return;
+  }
 
-
-/* } */
+  if (debugger_set_breakpoint(debugger, addr))
+    printf("Successfully set breakpoint at function: %s\n", func);
+  else
+    fprintf(stderr, "Couldn't set breakpoint.\n");
+}

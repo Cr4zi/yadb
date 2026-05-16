@@ -12,6 +12,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <assert.h>
+#include <string.h>
 
 #include <dwarf.h>
 #include <libdwarf.h>
@@ -57,5 +58,6 @@ void debugger_enable_all(struct debugger *debugger);
 void debugger_continue(struct debugger *debugger);
 
 uintptr_t debugger_get_line_addr(struct debugger *debugger, char *filename, uint64_t line);
+uintptr_t debugger_get_func_addr(struct debugger *debugger, char *func_name);
 
 #endif

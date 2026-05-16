@@ -1,5 +1,7 @@
 #include "debugger.h"
 #include "breakpoints.h"
+#include "ds/ht.h"
+#include "dwarf.h"
 #include "libdwarf.h"
 #include <sys/ptrace.h>
 
@@ -11,12 +13,13 @@ static void extract_last_element(char *src, char **out, const char *delm);
 static struct die_path_pair *die_path_init(char *full_path, Dwarf_Die die);
 static void free_die_path_pair(void *pair);
 static uintptr_t get_base_addr(pid_t pid);
-static int add_srcfiles(struct debugger *debugger, Dwarf_Die die,
+static int32_t add_srcfiles(struct debugger *debugger, Dwarf_Die die,
                         Dwarf_Half cu_header_type);
 static void debugger_cu_walk(struct debugger *debugger);
 static int64_t get_word_at(struct debugger *debugger, uintptr_t offset);
 static uint8_t set_byte_at(struct debugger *debugger, uintptr_t offset,
                         uint8_t byte);
+static uintptr_t get_func_addr_in_die(struct debugger *debugger, Dwarf_Die die, char *func_name);
 
 int32_t debugger_init(struct debugger *restrict debugger, const char *path) {
   int32_t dw_res = dwarf_init_path(path, NULL, 0, DW_GROUPNUMBER_ANY, NULL,
@@ -64,9 +67,8 @@ bool debugger_set_breakpoint(struct debugger *debugger, uintptr_t offset) {
 
   uint8_t original_byte = 0;
 
-  bool enabled = false;
+  bool enabled = true;
   if (IS_RUNNING(debugger->state)) {
-    enabled = true;
     original_byte = set_byte_at(debugger, offset, INT3_OPCODE);
   }
 
@@ -79,11 +81,16 @@ bool debugger_set_breakpoint(struct debugger *debugger, uintptr_t offset) {
 bool debugger_enable_breakpoint(struct debugger *debugger, size_t indx) {
   struct breakpoints *breakpoints = debugger->breakpoints;
 
-  if (!IS_RUNNING(debugger->state) || indx >= breakpoints->enabled.count)
+  if (indx >= breakpoints->enabled.count)
+    return false;
+
+  if (!breakpoints->enabled.items[indx])
     return false;
 
   uintptr_t offset = breakpoints->addrs.items[indx];
-  uint8_t byte = set_byte_at(debugger, offset, INT3_OPCODE);
+  uint8_t byte = 0;
+  if (IS_RUNNING(debugger->state))
+    byte = set_byte_at(debugger, offset, INT3_OPCODE);
 
   if (breakpoints->original_byte.items[indx] == 0)
     breakpoints->original_byte.items[indx] = byte;
@@ -96,7 +103,7 @@ bool debugger_enable_breakpoint(struct debugger *debugger, size_t indx) {
 bool debugger_disable_breakpoint(struct debugger *debugger, size_t indx) {
   struct breakpoints *breakpoints = debugger->breakpoints;
 
-  if (!IS_RUNNING(debugger->state) || indx >= breakpoints->enabled.count)
+  if (indx >= breakpoints->enabled.count)
     return false;
 
   if (!breakpoints->enabled.items[indx])
@@ -104,7 +111,9 @@ bool debugger_disable_breakpoint(struct debugger *debugger, size_t indx) {
 
   uintptr_t offset = breakpoints->addrs.items[indx];
 
-  set_byte_at(debugger, offset, breakpoints->original_byte.items[indx]);
+  if(IS_RUNNING(debugger->state))
+    set_byte_at(debugger, offset, breakpoints->original_byte.items[indx]);
+
   breakpoints->enabled.items[indx] = false;
 
   return true;
@@ -175,7 +184,7 @@ void debugger_continue(struct debugger *debugger) {
 uintptr_t debugger_get_line_addr(struct debugger *debugger, char *filename,
                                  uint64_t line) {
   Dwarf_Addr addr = 0;
-  int dw_res;
+  int32_t dw_res;
 
   struct ht_entry *entry = NULL;
   if (!(entry = (struct ht_entry *)ht_search(debugger->srcfiles, filename)))
@@ -228,6 +237,25 @@ uintptr_t debugger_get_line_addr(struct debugger *debugger, char *filename,
   }
 
   dwarf_srclines_dealloc_b(line_context);
+  return addr;
+}
+
+uintptr_t debugger_get_func_addr(struct debugger *debugger, char *func_name) {
+  uintptr_t addr = 0;
+  for (size_t i = 0; i < BUCKETS_CNT; ++i) {
+    struct ht_entry *entry = (struct ht_entry *)debugger->srcfiles->buckets[i];
+
+    for (; entry != NULL; entry = entry->next) {
+      struct die_path_pair *pair = (struct die_path_pair *)entry->value;
+
+      addr = get_func_addr_in_die(debugger, pair->die, func_name);
+
+      if (addr != 0)
+        return addr;
+    }
+
+  }
+
   return addr;
 }
 
@@ -301,7 +329,7 @@ static uintptr_t get_base_addr(pid_t pid) {
   return base_addr;
 }
 
-static int add_srcfiles(struct debugger *debugger, Dwarf_Die die,
+static int32_t add_srcfiles(struct debugger *debugger, Dwarf_Die die,
                         Dwarf_Half cu_header_type) {
   if (cu_header_type != DW_UT_compile)
     return DW_DLV_OK;
@@ -309,7 +337,7 @@ static int add_srcfiles(struct debugger *debugger, Dwarf_Die die,
   char **dw_srcfiles = NULL;
 
   Dwarf_Signed filecount = 0;
-  int dw_res = dwarf_srcfiles(die, &dw_srcfiles, &filecount, &debugger->dw_err);
+  int32_t dw_res = dwarf_srcfiles(die, &dw_srcfiles, &filecount, &debugger->dw_err);
   if (dw_res != DW_DLV_OK)
     return dw_res;
 
@@ -342,7 +370,7 @@ static void debugger_cu_walk(struct debugger *debugger) {
              extension_size = 0, header_cu_type = 0;
   Dwarf_Sig8 signature;
   Dwarf_Bool is_info = true;
-  int dw_res = 0;
+  int32_t dw_res = 0;
 
   // Who the fuck decided that this will be a function signature
   while ((dw_res = dwarf_next_cu_header_e(
@@ -380,4 +408,80 @@ static uint8_t set_byte_at(struct debugger *debugger, uintptr_t offset,
   }
 
   return original_byte;
+}
+
+static Dwarf_Addr get_func_addr_in_die_helper(struct debugger *debugger, Dwarf_Die die, char *func_name) {
+  Dwarf_Addr addr = 0;
+
+  Dwarf_Half tag = 0;
+  int32_t dw_res = dwarf_tag(die, &tag, &debugger->dw_err);
+  if (dw_res != DW_DLV_OK)
+    return addr;
+
+  if (tag != DW_TAG_subprogram)
+    return addr;
+
+  char *die_name = NULL;
+
+  dw_res = dwarf_diename(die, &die_name, &debugger->dw_err);
+  if (dw_res != DW_DLV_OK)
+    return addr;
+
+  if (strcmp(die_name, func_name))
+    return addr;
+
+  dwarf_dealloc(debugger->dw_dbg, die_name, DW_DLA_STRING);
+
+  Dwarf_Attribute *attr_list = 0;
+  Dwarf_Signed attr_count = 0;
+
+  dw_res = dwarf_attrlist(die, &attr_list, &attr_count, &debugger->dw_err);
+
+  if (dw_res != DW_DLV_OK)
+    return addr;
+
+  for (Dwarf_Signed i = 0; i < attr_count; ++i) {
+    Dwarf_Half attr_num = 0;
+
+    dw_res = dwarf_whatattr(attr_list[i], &attr_num, &debugger->dw_err);
+    // Shouldn't happen tbh
+    if (dw_res == DW_DLV_ERROR)
+      continue;
+
+    if (attr_num == DW_AT_low_pc)
+      dw_res = dwarf_formaddr(attr_list[i], &addr, &debugger->dw_err);
+
+    dwarf_dealloc_attribute(attr_list[i]);
+  }
+
+  dwarf_dealloc(debugger->dw_dbg, attr_list, DW_DLA_LIST);
+
+  return addr;
+}
+
+static uintptr_t get_func_addr_in_die(struct debugger *debugger, Dwarf_Die die,
+                                      char *func_name) {
+  uintptr_t addr = 0;
+  Dwarf_Die iter_die;
+
+  int32_t dw_res = dwarf_child(die, &iter_die, &debugger->dw_err);
+  if (dw_res != DW_DLV_OK)
+    return addr;
+
+  while (dw_res != DW_DLV_NO_ENTRY) {
+    addr = get_func_addr_in_die_helper(debugger, iter_die, func_name);
+
+    if (addr != 0)
+      break;
+
+    Dwarf_Die prev = iter_die;
+    dw_res = dwarf_siblingof_c(prev, &iter_die, &debugger->dw_err);
+
+    dwarf_dealloc(debugger->dw_dbg, prev, DW_DLA_DIE);
+  }
+
+  if (dw_res == DW_DLV_OK)
+    dwarf_dealloc(debugger->dw_dbg, iter_die, DW_DLA_DIE);
+
+  return addr;
 }
