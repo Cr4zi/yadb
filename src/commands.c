@@ -1,5 +1,4 @@
 #include "commands.h"
-#include "debugger.h"
 
 static void print_backtrace(struct debugger *debugger, struct backtrace *backtrace);
 static uintptr_t get_base_addr(pid_t pid);

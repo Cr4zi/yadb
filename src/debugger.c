@@ -1,6 +1,4 @@
 #include "debugger.h"
-#include "dwarf.h"
-#include "libdwarf.h"
 
 // http://www.cse.yorku.ca/~oz/hash.html
 static size_t djb2_hash(const void *str);
