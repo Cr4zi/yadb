@@ -1,9 +1,4 @@
 #include "debugger.h"
-#include "breakpoints.h"
-#include "ds/ht.h"
-#include "dwarf.h"
-#include "libdwarf.h"
-#include <sys/ptrace.h>
 
 // http://www.cse.yorku.ca/~oz/hash.html
 static size_t djb2_hash(const void *str);
@@ -12,15 +7,15 @@ static bool str_equals(const void *str1, const void *str2);
 static void extract_last_element(char *src, char **out, const char *delm);
 static struct die_path_pair *die_path_init(char *full_path, Dwarf_Die die);
 static void free_die_path_pair(void *pair);
-static uintptr_t get_base_addr(pid_t pid);
 static int32_t add_srcfiles(struct debugger *debugger, Dwarf_Die die,
                             Dwarf_Half cu_header_type);
 static void debugger_cu_walk(struct debugger *debugger);
-static int64_t get_word_at(struct debugger *debugger, uintptr_t offset);
 static uint8_t set_byte_at(struct debugger *debugger, uintptr_t offset,
                            uint8_t byte);
 static uintptr_t get_func_addr_in_die(struct debugger *debugger, Dwarf_Die die,
                                       char *func_name);
+static char *get_func_in_die(struct debugger *debugger, Dwarf_Die die,
+                             uintptr_t addr);
 
 int32_t debugger_init(struct debugger *restrict debugger, const char *path) {
   int32_t dw_res = dwarf_init_path(path, NULL, 0, DW_GROUPNUMBER_ANY, NULL,
@@ -42,6 +37,8 @@ int32_t debugger_init(struct debugger *restrict debugger, const char *path) {
     return DW_DLV_ERROR;
   }
 
+  debugger->base_addr = 0;
+
   debugger->breakpoints->addrs.count = 0;
   debugger->breakpoints->addrs.capacity = 0;
   debugger->breakpoints->addrs.items = NULL;
@@ -61,6 +58,16 @@ void debugger_deinit(struct debugger *restrict debugger) {
   breakpoints_deinit(debugger->breakpoints);
   ht_deinit(debugger->srcfiles);
   dwarf_finish(debugger->dw_dbg);
+}
+
+bool debugger_get_registers(struct debugger *debugger,
+                            struct user_regs_struct *regs) {
+  if (ptrace(PTRACE_GETREGS, debugger->debugee, NULL, regs) == -1) {
+    perror("ptrace(GETREGS)");
+    return false;
+  }
+
+  return true;
 }
 
 bool debugger_set_breakpoint(struct debugger *debugger, uintptr_t offset) {
@@ -135,12 +142,10 @@ void debugger_continue(struct debugger *debugger) {
   }
 
   struct user_regs_struct regs;
-  if (ptrace(PTRACE_GETREGS, debugger->debugee, NULL, &regs) == -1) {
-    perror("ptrace(GETREGS)");
+  if (!debugger_get_registers(debugger, &regs))
     return;
-  }
 
-  uintptr_t base_addr = get_base_addr(debugger->debugee);
+  uintptr_t base_addr = debugger->base_addr;
   uintptr_t instr = regs.rip - base_addr - 1;
 
   ssize_t indx;
@@ -261,6 +266,27 @@ uintptr_t debugger_get_func_addr(struct debugger *debugger, char *func_name) {
   return addr;
 }
 
+char *debugger_get_func_name(struct debugger *debugger, uintptr_t addr) {
+  for (size_t i = 0; i < BUCKETS_CNT; ++i) {
+    struct ht_entry *entry = debugger->srcfiles->buckets[i];
+
+    for (; entry; entry = entry->next) {
+      struct die_path_pair *pair = (struct die_path_pair *)entry->value;
+
+      char *func_name = get_func_in_die(debugger, pair->die, addr);
+
+      if (func_name)
+        return func_name;
+    }
+  }
+
+  return NULL;
+}
+
+int64_t debugger_get_word_at(struct debugger *debugger, uintptr_t addr) {
+  return ptrace(PTRACE_PEEKDATA, debugger->debugee, addr, NULL);
+}
+
 static size_t djb2_hash(const void *key) {
   const char *str = (const char *)key;
 
@@ -310,25 +336,6 @@ static void free_die_path_pair(void *pair) {
   free(conv_pair->full_path);
   /* dwarf_dealloc_die(conv_pair->die); */
   free(conv_pair);
-}
-
-static uintptr_t get_base_addr(pid_t pid) {
-#define LENGTH 32
-  char path[32];
-  snprintf(path, LENGTH, "/proc/%d/maps", pid);
-#undef LENGTH
-
-  FILE *f = fopen(path, "r");
-  if (!f) {
-    perror("fopen(maps)");
-    return 0;
-  }
-
-  uintptr_t base_addr = 0;
-  fscanf(f, "%lx-", &base_addr);
-  fclose(f);
-
-  return base_addr;
 }
 
 static int32_t add_srcfiles(struct debugger *debugger, Dwarf_Die die,
@@ -386,14 +393,9 @@ static void debugger_cu_walk(struct debugger *debugger) {
   }
 }
 
-static int64_t get_word_at(struct debugger *debugger, uintptr_t offset) {
-  return ptrace(PTRACE_PEEKDATA, debugger->debugee,
-                offset + get_base_addr(debugger->debugee), NULL);
-}
-
 static uint8_t set_byte_at(struct debugger *debugger, uintptr_t offset,
                            uint8_t byte) {
-  int64_t word = get_word_at(debugger, offset);
+  int64_t word = debugger_get_word_at(debugger, offset + debugger->base_addr);
   if (word == -1) {
     fprintf(stderr, "Couldn't get word at %p\n", (void *)offset);
     perror("ptrace(PEEKDATA)");
@@ -404,8 +406,8 @@ static uint8_t set_byte_at(struct debugger *debugger, uintptr_t offset,
 
   word = (word & ~0xFF) | byte;
 
-  if (ptrace(PTRACE_POKEDATA, debugger->debugee,
-             offset + get_base_addr(debugger->debugee), word)) {
+  if (ptrace(PTRACE_POKEDATA, debugger->debugee, offset + debugger->base_addr,
+             word)) {
     perror("ptrace(POKEDATA)");
     return 0;
   }
@@ -488,4 +490,107 @@ static uintptr_t get_func_addr_in_die(struct debugger *debugger, Dwarf_Die die,
     dwarf_dealloc(debugger->dw_dbg, iter_die, DW_DLA_DIE);
 
   return addr;
+}
+
+static char *func_name_in_die(struct debugger *debugger, Dwarf_Die die,
+                              uintptr_t addr) {
+  char *name = NULL;
+
+  Dwarf_Half tag = 0;
+  int32_t dw_res = dwarf_tag(die, &tag, &debugger->dw_err);
+
+  if (tag != DW_TAG_subprogram)
+    return name;
+
+
+  Dwarf_Attribute *attr_list = 0;
+  Dwarf_Signed attr_count = 0;
+
+  dw_res = dwarf_attrlist(die, &attr_list, &attr_count, &debugger->dw_err);
+
+  if (dw_res != DW_DLV_OK)
+    return name;
+
+  Dwarf_Addr low_pc = 0;
+  Dwarf_Addr high_pc = 0;
+
+  for (Dwarf_Signed i = 0; i < attr_count; ++i) {
+    Dwarf_Half attr_num = 0;
+
+    dw_res = dwarf_whatattr(attr_list[i], &attr_num, &debugger->dw_err);
+    // Shouldn't happen tbh
+    if (dw_res == DW_DLV_ERROR)
+      continue;
+
+    if (attr_num == DW_AT_low_pc)
+      dw_res = dwarf_formaddr(attr_list[i], &low_pc, &debugger->dw_err);
+    else if (attr_num == DW_AT_high_pc) { // DWARF4+ and it's shanenigans
+      Dwarf_Half form = 0;
+      dw_res = dwarf_whatform(attr_list[i], &form, &debugger->dw_err);
+
+      if (form == DW_FORM_addr)
+        dw_res = dwarf_formaddr(attr_list[i], &high_pc, &debugger->dw_err);
+      else {
+        Dwarf_Unsigned offset = 0;
+        dw_res = dwarf_formudata(attr_list[i], &offset, &debugger->dw_err);
+        high_pc = low_pc + offset;
+      }
+
+    }
+
+    dwarf_dealloc_attribute(attr_list[i]);
+  }
+
+  if (addr < low_pc || addr > high_pc)
+    return name;
+
+  char *die_name = NULL;
+  dw_res = dwarf_diename(die, &die_name, &debugger->dw_err);
+
+  name = strdup(die_name);
+  dwarf_dealloc(debugger->dw_dbg, die_name, DW_DLA_STRING);
+
+  return name;
+}
+
+static char *get_func_in_die(struct debugger *debugger, Dwarf_Die die,
+                             uintptr_t addr) {
+  Dwarf_Die cur = die;
+  int32_t dw_res;
+  char *name = NULL;
+
+  while (1) {
+    name = func_name_in_die(debugger, cur, addr);
+
+    if (name)
+      return name;
+
+    Dwarf_Die child = NULL;
+    dw_res = dwarf_child(cur, &child, &debugger->dw_err);
+    if (dw_res == DW_DLV_ERROR)
+      break;
+
+    if (dw_res == DW_DLV_OK) {
+      name = get_func_in_die(debugger, child, addr);
+      dwarf_dealloc(debugger->dw_dbg, child, DW_DLA_DIE);
+      if (name)
+        break;
+    }
+
+    Dwarf_Die sib = NULL;
+    dw_res = dwarf_siblingof_c(cur, &sib, &debugger->dw_err);
+    if (dw_res != DW_DLV_OK)
+      break;
+
+    if (cur != die) {
+      dwarf_dealloc(debugger->dw_dbg, cur, DW_DLA_DIE);
+    }
+
+    cur = sib;
+  }
+
+  if (cur != die)
+    dwarf_dealloc(debugger->dw_dbg, cur, DW_DLA_DIE);
+
+  return name;
 }

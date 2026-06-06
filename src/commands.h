@@ -6,6 +6,7 @@
 #include <linux/limits.h>
 
 #include "debugger.h"
+#include "unwind.h"
 
 #define COMMANDS                                                               \
   CMD("break", cmd_break)                                                      \
