@@ -195,9 +195,9 @@ static void print_frames(struct debugger *debugger, struct stack_frame *frame, u
   uintptr_t addr = frame->fp;
   char *name = debugger_get_func_name(debugger, addr);
   if (!name)
-    printf("#%lu couldn't find name at %p\n", frame_num, (void *)addr);
+    printf("#%lu couldn't find name at %p\n", frame_num, (void *)(addr + debugger->base_addr));
   else {
-    printf("#%lu %s () at %p\n", frame_num, name, (void *)addr);
+    printf("#%lu %s () at %p\n", frame_num, name, (void *)(addr + debugger->base_addr));
     free(name);
   }
 }
