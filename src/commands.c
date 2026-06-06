@@ -1,7 +1,8 @@
 #include "commands.h"
-#include "breakpoints.h"
 #include "debugger.h"
 
+static void print_backtrace(struct debugger *debugger, struct backtrace *backtrace);
+static uintptr_t get_base_addr(pid_t pid);
 static void cmd_break_line(struct debugger *debugger, char *filename, char *line);
 static void cmd_break_func(struct debugger *debugger, char *func);
 
@@ -99,6 +100,7 @@ void cmd_run(struct debugger *debugger, const size_t argc, char **args) {
   }
 
   SET_RUNNING(debugger->state);
+  debugger->base_addr = get_base_addr(debugger->debugee);
 
   debugger_enable_all(debugger);
 
@@ -162,7 +164,19 @@ void cmd_watchpoint(struct debugger *debugger, const size_t argc,
 
 void cmd_backtrace(struct debugger *debugger, const size_t argc,
                    char **args) {
-  assert(0 && "cmd_backtrace not implemented");
+  if (argc != 1) {
+    fprintf(stderr, "Invalid amount of arguments.\nSee `help backtrace` for more information.\n");
+    return;
+  }
+
+  struct backtrace bt;
+  if (!stack_unwind(debugger, &bt)) {
+    fprintf(stderr, "Couldn't unwind the stack.\n");
+    return;
+  }
+
+  print_backtrace(debugger, &bt);
+  backtrace_deinit(&bt);
 }
 
 void cmd_exit(struct debugger *debugger, const size_t argc, char **args) {
@@ -171,6 +185,26 @@ void cmd_exit(struct debugger *debugger, const size_t argc, char **args) {
 
 void cmd_help(struct debugger *debugger, const size_t argc, char **args) {
   assert(0 && "cmd_help not implemented");
+}
+
+static void print_frames(struct debugger *debugger, struct stack_frame *frame, uint64_t frame_num) {
+  if (!frame)
+    return;
+
+  print_frames(debugger, frame->next, frame_num + 1);
+
+  uintptr_t addr = frame->fp;
+  char *name = debugger_get_func_name(debugger, addr);
+  if (!name)
+    printf("#%lu couldn't find name at %p\n", frame_num, (void *)addr);
+  else {
+    printf("#%lu %s () at %p\n", frame_num, name, (void *)addr);
+    free(name);
+  }
+}
+
+static void print_backtrace(struct debugger *debugger, struct backtrace *backtrace) {
+  print_frames(debugger, backtrace->frames, 0);
 }
 
 static void cmd_break_line(struct debugger *debugger, char *filename,
@@ -204,4 +238,23 @@ static void cmd_break_func(struct debugger *debugger, char *func) {
     printf("Successfully set breakpoint at function: %s\n", func);
   else
     fprintf(stderr, "Couldn't set breakpoint.\n");
+}
+
+static uintptr_t get_base_addr(pid_t pid) {
+#define LENGTH 32
+  char path[32];
+  snprintf(path, LENGTH, "/proc/%d/maps", pid);
+#undef LENGTH
+
+  FILE *f = fopen(path, "r");
+  if (!f) {
+    perror("fopen(maps)");
+    return 0;
+  }
+
+  uintptr_t base_addr = 0;
+  fscanf(f, "%lx-", &base_addr);
+  fclose(f);
+
+  return base_addr;
 }

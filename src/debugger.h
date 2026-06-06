@@ -42,6 +42,7 @@ struct debugger {
   struct ht *srcfiles; /* Key: filename, Value: die_path_pair */
 
   char *path;
+  uintptr_t base_addr;
 
   pid_t debugee;
   uint8_t state;
@@ -49,6 +50,8 @@ struct debugger {
 
 int32_t debugger_init(struct debugger *restrict debugger, const char *path);
 void debugger_deinit(struct debugger *restrict debugger);
+
+bool debugger_get_registers(struct debugger *debugger, struct user_regs_struct *regs);
 
 bool debugger_set_breakpoint(struct debugger *debugger, uintptr_t offset);
 bool debugger_enable_breakpoint(struct debugger *debugger, size_t indx);
@@ -59,5 +62,8 @@ void debugger_continue(struct debugger *debugger);
 
 uintptr_t debugger_get_line_addr(struct debugger *debugger, char *filename, uint64_t line);
 uintptr_t debugger_get_func_addr(struct debugger *debugger, char *func_name);
+char *debugger_get_func_name(struct debugger *debugger, uintptr_t addr);
+
+int64_t debugger_get_word_at(struct debugger *debugger, uintptr_t addr);
 
 #endif
