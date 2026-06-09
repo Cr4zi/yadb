@@ -502,7 +502,6 @@ static char *func_name_in_die(struct debugger *debugger, Dwarf_Die die,
   if (tag != DW_TAG_subprogram)
     return name;
 
-
   Dwarf_Attribute *attr_list = 0;
   Dwarf_Signed attr_count = 0;
 

@@ -221,13 +221,9 @@ static bool unwind_registers(struct debugger *debugger,
 
     if (!unwind_register(debugger, &original, &reg_table->rt3_rules[reg_indx],
                          &reg_value)) {
-      if (i == REGS_RIP)
-        return false;
-
       continue;
     }
 
-    // printf("Unwinded reg at indx: %d: %lx\n", i, reg_value);
     regs->regs[i] = reg_value;
   }
 

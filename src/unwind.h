@@ -10,8 +10,6 @@
 
 #include "debugger.h"
 
-/* Define struct for needed regs, add to stack frame */
-
 struct stack_frame {
   struct stack_frame *next;
   uintptr_t fp;
